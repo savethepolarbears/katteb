@@ -1,0 +1,116 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "katteb"
+version = "1.0.0"
+description = "Katteb API v2 CLI & Developer SDK for AI article generation, SEO analysis, and WordPress content expansion"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "Black Bear Media LLC", email = "engineering@blackbearmedia.io" },
+]
+keywords = ["katteb", "ai", "content-generation", "seo", "cli", "wordpress", "sdk"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+]
+dependencies = [
+    "requests>=2.31.0,<3.0.0",
+    "pydantic>=2.5.0,<3.0.0",
+    "click>=8.1.0,<9.0.0",
+    "rich>=13.7.0,<14.0.0",
+    "python-dotenv>=1.0.0,<2.0.0",
+    "beautifulsoup4>=4.12.0,<5.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.12.0",
+    "ruff>=0.3.0",
+    "mypy>=1.8.0",
+    "types-requests>=2.31.0",
+]
+
+[project.scripts]
+katteb = "katteb.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/savethepolarbears/katteb"
+Documentation = "https://github.com/savethepolarbears/katteb#readme"
+Repository = "https://github.com/savethepolarbears/katteb"
+Issues = "https://github.com/savethepolarbears/katteb/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/katteb"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+exclude = [
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    ".venv",
+    "venv",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "S",   # flake8-bandit (security)
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501", # line-too-long handled by formatter
+    "S101", # assert allowed in tests
+    "S603", # subprocess check
+    "S607", # start process with partial path
+    "S608", # sql string in generated code
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106"]  # allow asserts and dummy mock keys in tests
+"__init__.py" = ["F401"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-p no:recording -v --cov=katteb --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["src/katteb"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
