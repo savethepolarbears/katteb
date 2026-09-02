@@ -315,6 +315,22 @@ class WordPressFleetManager:
         meta_title = article_res.meta_title or title
         meta_desc = article_res.meta_description or ""
 
+        # Content Quality & Authorization Guard
+        if "Error (401)" in new_html or "Your IP is not authorized" in new_html:
+            raise RuntimeError(
+                "Katteb returned an IP authorization error: 'Your IP is not authorized to make this request.'\n"
+                "Please add your current public IP to the allowed IP list in your Katteb account dashboard at https://app.katteb.com/api_access"
+            )
+
+        if "Error (" in new_html and len(new_html) < 400:
+            raise RuntimeError(f"Katteb generation returned an error payload: {new_html}")
+
+        # Clean meta_description from stray css or tags
+        import re
+
+        meta_desc = re.sub(r"<style[\s\S]*?</style>", "", meta_desc)
+        meta_desc = re.sub(r"\.[a-zA-Z0-9_-]+\s*\{[^}]*\}", "", meta_desc).strip()
+
         if on_status:
             on_status(f"Article generated ({article_res.word_count} words). Updating WordPress post #{post_id}...")
 
