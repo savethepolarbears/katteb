@@ -104,6 +104,11 @@ node_modules/
 *.pem
 *.key
 *.token
-config.json
+/config.json
 secrets.json
 credentials.json
+!.planning/config.json
+
+# Graphify build cache & outputs
+graphify-out/
+.planning/graphs/

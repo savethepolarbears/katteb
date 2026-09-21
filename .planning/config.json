@@ -1,0 +1,21 @@
+{
+  "mode": "interactive",
+  "granularity": "standard",
+  "parallelization": true,
+  "commit_docs": true,
+  "model_profile": "adaptive",
+  "workflow": {
+    "research": true,
+    "plan_check": true,
+    "verifier": true,
+    "nyquist_validation": true
+  },
+  "plan_review": {
+    "source_grounding": true
+  },
+  "graphify": {
+    "enabled": true,
+    "build_timeout": 300,
+    "watch_interval": 30
+  }
+}
