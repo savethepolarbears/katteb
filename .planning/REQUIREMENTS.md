@@ -25,9 +25,9 @@ Requirements for active milestone. Each maps directly to roadmap phases.
 
 ### Phase 3: Omnichannel Pipeline Integration & Telemetry
 
-- [ ] **OPS-01**: Activepieces webhook trigger / CLI integration interface for event-driven post expansions.
-- [ ] **OPS-02**: Account credit threshold alert trigger warning operators when credit pool falls below configurable threshold.
-- [ ] **OPS-03**: Structured JSON logging telemetry for integration into central fleet observability dashboards.
+- [x] **OPS-01**: Activepieces webhook trigger / CLI integration interface for event-driven post expansions.
+- [x] **OPS-02**: Account credit threshold alert trigger warning operators when credit pool falls below configurable threshold.
+- [x] **OPS-03**: Structured JSON logging telemetry for integration into central fleet observability dashboards.
 
 ## v2 Requirements
 
@@ -64,9 +64,9 @@ Which phases cover which requirements.
 | BATCH-02 | Phase 2: Fleet Batch Expansion & Quality Gates | Complete |
 | BATCH-03 | Phase 2: Fleet Batch Expansion & Quality Gates | Complete |
 | BATCH-04 | Phase 2: Fleet Batch Expansion & Quality Gates | Complete |
-| OPS-01 | Phase 3: Omnichannel Pipeline Integration & Telemetry | Pending |
-| OPS-02 | Phase 3: Omnichannel Pipeline Integration & Telemetry | Pending |
-| OPS-03 | Phase 3: Omnichannel Pipeline Integration & Telemetry | Pending |
+| OPS-01 | Phase 3: Omnichannel Pipeline Integration & Telemetry | Complete |
+| OPS-02 | Phase 3: Omnichannel Pipeline Integration & Telemetry | Complete |
+| OPS-03 | Phase 3: Omnichannel Pipeline Integration & Telemetry | Complete |
 
 **Coverage:**
 - v1 requirements: 13 total

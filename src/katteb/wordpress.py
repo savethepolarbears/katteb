@@ -473,6 +473,9 @@ class WordPressFleetManager:
             }
 
         # Submit and poll Katteb API
+        import time
+
+        start_time = time.time()
         article_res: ArticleGetResponse = self.queue.generate_and_wait(
             topic=topic,
             language="English",
@@ -577,8 +580,9 @@ class WordPressFleetManager:
         """
 
         wp_res = run_wp_eval(site, php_update)
+        duration = round(time.time() - start_time, 2)
 
-        return {
+        res_dict = {
             "success": True,
             "post_id": post_id,
             "title": title,
@@ -587,4 +591,27 @@ class WordPressFleetManager:
             "job_id": article_res.job_id,
             "meta_title": meta_title,
             "meta_description": meta_desc,
+            "duration_seconds": duration,
         }
+
+        try:
+            from katteb.telemetry import log_telemetry_event
+
+            log_telemetry_event(
+                event_type="post_expansion",
+                data={
+                    "site": site,
+                    "post_id": post_id,
+                    "title": title,
+                    "previous_word_count": res_dict["previous_word_count"],
+                    "new_word_count": res_dict["new_word_count"],
+                    "words_generated": max(0, (res_dict["new_word_count"] or 0) - (res_dict["previous_word_count"] or 0)),
+                    "credits_used": 1,
+                    "duration_seconds": duration,
+                    "success": True,
+                },
+            )
+        except Exception:
+            pass  # Telemetry emission must never crash business operations
+
+        return res_dict
