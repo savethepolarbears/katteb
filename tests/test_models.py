@@ -55,3 +55,30 @@ def test_account_credits_parsing():
     res = AccountCreditsResponse.model_validate(raw)
     assert res.credits == 45000
     assert res.plan_type == "pro"
+
+
+def test_account_credits_available_alias():
+    raw = {
+        "success": True,
+        "credits_available": 35000,
+        "credits_total": 50000,
+        "brand_allocated": 15000,
+        "brands": [{"brand_id": 1, "credits": 15000}],
+    }
+    res = AccountCreditsResponse.model_validate(raw)
+    assert res.credits == 35000
+    assert res.credits_available == 35000
+    assert res.brand_allocated == 15000
+    assert len(res.brands) == 1
+
+
+def test_account_credits_pool_alias():
+    raw = {
+        "success": True,
+        "credits_pool": 20000,
+        "credits_total": 50000,
+    }
+    res = AccountCreditsResponse.model_validate(raw)
+    assert res.credits == 20000
+    assert res.credits_pool == 20000
+
