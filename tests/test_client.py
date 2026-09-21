@@ -84,3 +84,48 @@ def test_rate_limit_429_with_active_job(client):
             client.generate_article(topic="Busy Topic")
         assert exc.value.active_job_id == 4444
         assert exc.value.retry_after == 120
+
+
+def test_request_retry_on_502_success(client):
+    err_resp = MagicMock()
+    err_resp.status_code = 502
+    err_resp.json.return_value = {"error": "Bad Gateway"}
+
+    ok_resp = MagicMock()
+    ok_resp.status_code = 200
+    ok_resp.json.return_value = {"success": True, "credits": 1000}
+
+    with patch.object(client.session, "request", side_effect=[err_resp, ok_resp]), \
+         patch("time.sleep") as mock_sleep:
+        res = client._request("GET", "account/credits", max_retries=2, initial_delay=0.1)
+        assert res["credits"] == 1000
+        mock_sleep.assert_called_once()
+
+
+def test_request_retry_exhausted_raises_api_error(client):
+    from katteb.client import KattebAPIError
+
+    err_resp = MagicMock()
+    err_resp.status_code = 503
+    err_resp.json.return_value = {"error": "Service Unavailable"}
+
+    with patch.object(client.session, "request", return_value=err_resp), \
+         patch("time.sleep"):
+        with pytest.raises(KattebAPIError) as exc:
+            client._request("GET", "account/credits", max_retries=2, initial_delay=0.01)
+        assert exc.value.status_code == 503
+
+
+def test_request_retry_on_network_connection_error(client):
+    import requests
+    from katteb.client import KattebAPIError
+
+    ok_resp = MagicMock()
+    ok_resp.status_code = 200
+    ok_resp.json.return_value = {"success": True}
+
+    with patch.object(client.session, "request", side_effect=[requests.exceptions.ConnectionError("Connection reset"), ok_resp]), \
+         patch("time.sleep"):
+        res = client._request("GET", "styles/list", max_retries=2, initial_delay=0.01)
+        assert res["success"] is True
+

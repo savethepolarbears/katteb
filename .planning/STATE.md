@@ -1,12 +1,12 @@
 ---
 gsd_state_version: '1.0'
-status: planning
+status: ready_to_plan
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 1
-  percent: 20
+  completed_plans: 3
+  percent: 60
 ---
 
 # Project State
@@ -16,35 +16,35 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-21)
 
 **Core value:** Resilient, production-safe generation and bulk enrichment of WordPress content across digital publishing fleets without crashing from concurrency lockouts or corrupting production databases.
-**Current focus:** Phase 2: Fleet Batch Expansion & Quality Gates
+**Current focus:** Phase 3: Omnichannel Pipeline Integration & Telemetry
 
 ## Current Position
 
-Phase: 2 of 3 (Fleet Batch Expansion & Quality Gates)
+Phase: 3 of 3 (Omnichannel Pipeline Integration & Telemetry)
 Plan: 0 of 2 in current phase
-Status: Ready to plan
-Last activity: 2026-09-21 — Initialized GSD project structure and synchronized Graphify knowledge graph
+Status: Ready to plan Phase 3
+Last activity: 2026-09-21 — Completed Phase 2 (Fleet Batch Expansion & Quality Gates) with 2 plans executed and verified
 
-Progress: [██░░░░░░░░] 20%
+Progress: [██████░░░░] 60%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
-- Average duration: 15 min
-- Total execution time: 0.25 hours
+- Total plans completed: 3
+- Average duration: 12 min
+- Total execution time: 0.6 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1. Guard Hardening & Test Verification | 1/1 | 15 min | 15 min |
-| 2. Fleet Batch Expansion & Quality Gates | 0/2 | - | - |
+| 2. Fleet Batch Expansion & Quality Gates | 2/2 | 20 min | 10 min |
 | 3. Omnichannel Pipeline Integration & Telemetry | 0/2 | - | - |
 
 **Recent Trend:**
-- Last plan: 01-01 (15m)
-- Trend: Stable
+- Last plan: 02-02 (10m)
+- Trend: Fast & Stable
 
 *Updated after each plan completion*
 
@@ -58,14 +58,18 @@ Recent decisions affecting current work:
 - [Phase 1]: Pydantic v2 validation with `available_credits` and `pool_credits` aliases to accommodate Katteb API schema variations.
 - [Phase 1]: Intercept 401 egress IP errors and output direct portal link to unblock operator IP whitelisting.
 - [Phase 1]: Reject short payloads (< 400 chars) that contain raw error strings to prevent database corruption.
+- [Phase 2]: Validate site aliases via regex whitelist to guarantee zero shell injection in WP-CLI subcommands.
+- [Phase 2]: Implement exponential backoff with jitter for 5xx and connection drops in KattebClient while preserving distinct 401/402/429 exceptions.
+- [Phase 2]: Validate heading hierarchy (H2/H3 counts) and detect unreplaced placeholder tokens prior to WordPress mutation via `ContentQualityError`.
+- [Phase 2]: Generate persistent Markdown audit receipts (`--receipt-dir`) capturing per-post expansion outcomes and quality metrics.
 
 ### Pending Todos
 
-None yet.
+None. All Phase 1 and 2 plans delivered.
 
 ### Blockers/Concerns
 
-None yet. All 27 unit tests pass cleanly.
+None. All 37 unit tests pass cleanly.
 
 ## Deferred Items
 

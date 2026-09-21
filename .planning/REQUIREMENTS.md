@@ -9,19 +9,19 @@ Requirements for active milestone. Each maps directly to roadmap phases.
 
 ### Phase 1: Guard Hardening & Test Verification
 
-- [ ] **TEST-01**: Complete unit test coverage for `WordPressFleetManager` IP authorization guard (HTTP 401 intercept and portal guidance).
-- [ ] **TEST-02**: Complete unit test coverage for `WordPressFleetManager` payload error guard (rejecting short/error payloads < 400 chars).
-- [ ] **TEST-03**: Complete unit test coverage for `WordPressFleetManager` RankMath meta description sanitizer (stripping inline `<style>` and CSS selectors).
-- [ ] **TEST-04**: Test coverage for `AccountCreditsResponse` model parsing with credit pooling and available credits field aliases.
-- [ ] **TEST-05**: Test coverage for `KattebQueueManager` handling immediate job success and concurrency 429 lockouts.
-- [ ] **TEST-06**: Verification that all 27 unit tests pass cleanly in local and CI environments.
+- [x] **TEST-01**: Complete unit test coverage for `WordPressFleetManager` IP authorization guard (HTTP 401 intercept and portal guidance).
+- [x] **TEST-02**: Complete unit test coverage for `WordPressFleetManager` payload error guard (rejecting short/error payloads < 400 chars).
+- [x] **TEST-03**: Complete unit test coverage for `WordPressFleetManager` RankMath meta description sanitizer (stripping inline `<style>` and CSS selectors).
+- [x] **TEST-04**: Test coverage for `AccountCreditsResponse` model parsing with credit pooling and available credits field aliases.
+- [x] **TEST-05**: Test coverage for `KattebQueueManager` handling immediate job success and concurrency 429 lockouts.
+- [x] **TEST-06**: Verification that all 27 unit tests pass cleanly in local and CI environments.
 
 ### Phase 2: Fleet Batch Expansion & Quality Gates
 
-- [ ] **BATCH-01**: Multi-site target support in batch expansion command (`--site` selector with fallback profile validation).
-- [ ] **BATCH-02**: Exponential backoff and retry policy when Katteb API returns intermittent 5xx or connection drops during long-running batch jobs.
-- [ ] **BATCH-03**: Execution receipt generator writing markdown audit summaries (`expand-receipt-<timestamp>.md`) detailing affected post IDs, word counts, and modified custom fields.
-- [ ] **BATCH-04**: Content quality validator ensuring generated content adheres to minimum H2/H3 heading hierarchy and contains no hallucinated placeholder tokens before WP update.
+- [x] **BATCH-01**: Multi-site target support in batch expansion command (`--site` selector with fallback profile validation).
+- [x] **BATCH-02**: Exponential backoff and retry policy when Katteb API returns intermittent 5xx or connection drops during long-running batch jobs.
+- [x] **BATCH-03**: Execution receipt generator writing markdown audit summaries (`expand-receipt-<timestamp>.md`) detailing affected post IDs, word counts, and modified custom fields.
+- [x] **BATCH-04**: Content quality validator ensuring generated content adheres to minimum H2/H3 heading hierarchy and contains no hallucinated placeholder tokens before WP update.
 
 ### Phase 3: Omnichannel Pipeline Integration & Telemetry
 
@@ -60,10 +60,10 @@ Which phases cover which requirements.
 | TEST-04 | Phase 1: Guard Hardening & Test Verification | Complete |
 | TEST-05 | Phase 1: Guard Hardening & Test Verification | Complete |
 | TEST-06 | Phase 1: Guard Hardening & Test Verification | Complete |
-| BATCH-01 | Phase 2: Fleet Batch Expansion & Quality Gates | Pending |
-| BATCH-02 | Phase 2: Fleet Batch Expansion & Quality Gates | Pending |
-| BATCH-03 | Phase 2: Fleet Batch Expansion & Quality Gates | Pending |
-| BATCH-04 | Phase 2: Fleet Batch Expansion & Quality Gates | Pending |
+| BATCH-01 | Phase 2: Fleet Batch Expansion & Quality Gates | Complete |
+| BATCH-02 | Phase 2: Fleet Batch Expansion & Quality Gates | Complete |
+| BATCH-03 | Phase 2: Fleet Batch Expansion & Quality Gates | Complete |
+| BATCH-04 | Phase 2: Fleet Batch Expansion & Quality Gates | Complete |
 | OPS-01 | Phase 3: Omnichannel Pipeline Integration & Telemetry | Pending |
 | OPS-02 | Phase 3: Omnichannel Pipeline Integration & Telemetry | Pending |
 | OPS-03 | Phase 3: Omnichannel Pipeline Integration & Telemetry | Pending |

@@ -507,8 +507,9 @@ def wp_expand_post(ctx: click.Context, site: str, post_id: int, words: int, dry_
 @click.option("--limit", "-n", default=3, type=int, help="Number of lowest word count posts to expand (default: 3)")
 @click.option("--words", "-w", default=1500, type=int, help="Target word count per article")
 @click.option("--dry-run", is_flag=True, help="Preview batch plan without executing")
+@click.option("--receipt-dir", "-r", default="receipts", help="Directory to save markdown audit receipt (default: receipts)")
 @click.pass_context
-def wp_batch_expand(ctx: click.Context, site: str, post_type: str, limit: int, words: int, dry_run: bool):
+def wp_batch_expand(ctx: click.Context, site: str, post_type: str, limit: int, words: int, dry_run: bool, receipt_dir: str):
     """Batch expand the lowest word count posts for a post type on WordPress."""
     client = get_client(ctx)
     wp_mgr = WordPressFleetManager(client)
@@ -542,12 +543,31 @@ def wp_batch_expand(ctx: click.Context, site: str, post_type: str, limit: int, w
             results.append(res)
             console.print(f"   ✅ Updated Post #{t['id']}: {res['previous_word_count']}w ➔ {res['new_word_count']}w")
         except Exception as e:
+            results.append({
+                "success": False,
+                "post_id": t["id"],
+                "title": t["title"],
+                "error": str(e),
+                "previous_word_count": t.get("content_wc", 0),
+                "new_word_count": t.get("content_wc", 0),
+            })
             console.print(f"   ❌ Error on Post #{t['id']}: {e}")
 
+    receipt_file = None
+    if results:
+        from katteb.wordpress import generate_expansion_receipt
+
+        receipt_file = generate_expansion_receipt(site=site, results=results, output_dir=receipt_dir)
+
     if as_json:
-        print_json({"batch_results": results})
+        payload = {"batch_results": results}
+        if receipt_file:
+            payload["receipt_file"] = receipt_file
+        print_json(payload)
     else:
         console.print(f"\n🎉 [bold green]Batch Expansion Complete![/bold green] Processed {len(results)} posts.")
+        if receipt_file:
+            console.print(f"📄 Audit receipt written to: [bold cyan]{receipt_file}[/bold cyan]")
 
 
 def main():

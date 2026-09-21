@@ -83,6 +83,68 @@ COUNTRY_ISO_MAP = {
     "slovakia": "sk",
 }
 
+# Fleet site profile definitions
+FLEET_SITE_PROFILES: dict[str, dict[str, Any]] = {
+    "destinations-ai": {
+        "name": "Destinations AI",
+        "domain": "destinations.ai",
+        "default_post_type": "destinations",
+    },
+    "viatravelers": {
+        "name": "ViaTravelers",
+        "domain": "viatravelers.com",
+        "default_post_type": "post",
+    },
+    "santorinisecrets": {
+        "name": "Santorini Secrets",
+        "domain": "santorinisecrets.com",
+        "default_post_type": "post",
+    },
+    "amsterdamlocalgems": {
+        "name": "Amsterdam Local Gems",
+        "domain": "amsterdamlocalgems.com",
+        "default_post_type": "post",
+    },
+    "parkervillas": {
+        "name": "Parker Villas",
+        "domain": "parkervillas.com",
+        "default_post_type": "post",
+    },
+    "realjourneytravels": {
+        "name": "Real Journey Travels",
+        "domain": "realjourneytravels.com",
+        "default_post_type": "post",
+    },
+    "everythingaboutgermany": {
+        "name": "Everything About Germany",
+        "domain": "everythingaboutgermany.com",
+        "default_post_type": "post",
+    },
+    "gearbuddha": {
+        "name": "Gear Buddha",
+        "domain": "gearbuddha.com",
+        "default_post_type": "gear",
+    },
+    "theimpactinvestor": {
+        "name": "The Impact Investor",
+        "domain": "theimpactinvestor.com",
+        "default_post_type": "post",
+    },
+}
+
+
+def validate_site_alias(site: str) -> str:
+    """Validate site alias to ensure it is alphanumeric with dashes/dots, preventing shell injection."""
+    if not site or not isinstance(site, str):
+        raise ValueError("Site alias must be a non-empty string.")
+    cleaned = site.strip()
+    check_str = cleaned[1:] if cleaned.startswith("@") else cleaned
+    import re
+
+    if not re.match(r"^[a-zA-Z0-9_.-]+$", check_str):
+        raise ValueError(f"Invalid site alias '{site}': contains forbidden characters.")
+    return cleaned
+
 
 def resolve_country_code(country_name: str | None) -> str:
     """Map country string to ISO alpha-2 code, defaulting to 'us'."""
@@ -96,7 +158,8 @@ def run_wp_cli(alias: str, command: str, timeout: int = 45) -> str:
     """Execute a WP-CLI command via wp-global."""
     import shlex
 
-    target_alias = f"@{alias}.prod" if not alias.startswith("@") else alias
+    validated_alias = validate_site_alias(alias)
+    target_alias = f"@{validated_alias}.prod" if not validated_alias.startswith("@") else validated_alias
     cmd_args = ["bash", str(WP_GLOBAL_SCRIPT), target_alias, *shlex.split(command)]
 
     res = subprocess.run(
@@ -125,12 +188,123 @@ def run_wp_eval(alias: str, php_code: str, timeout: int = 60) -> Any:
         return out
 
 
+class ContentQualityError(RuntimeError):
+    """Raised when generated AI content fails editorial quality gates or contains placeholder tokens."""
+
+    def __init__(self, message: str, errors: list[str] | None = None):
+        super().__init__(message)
+        self.errors = errors or []
+
+
+def validate_generated_content(html: str, target_word_count: int = 1500) -> list[str]:
+    """Validate that generated HTML content satisfies editorial structure and has no placeholder leakage."""
+    import re
+
+    errors: list[str] = []
+    if not html or not html.strip():
+        return ["Content is completely empty."]
+
+    clean_text = re.sub(r"<[^>]+>", " ", html)
+
+    if target_word_count >= 1000:
+        h2_count = len(re.findall(r"<h2[^>]*>", html, re.IGNORECASE))
+        if h2_count < 2:
+            errors.append(f"Content lacks sufficient H2 structure: found {h2_count} <h2> tags (minimum 2 required).")
+
+        h3_count = len(re.findall(r"<h3[^>]*>", html, re.IGNORECASE))
+        if h3_count < 1:
+            errors.append(f"Content lacks H3 subsections: found {h3_count} <h3> tags (minimum 1 required).")
+
+    # Placeholder tokens check
+    placeholder_pattern = r"\[(City|Country|Name|Insert|Destination|State|Region|URL|Link|Date|Phone|Company|Brand)\]"
+    found_placeholders = re.findall(placeholder_pattern, html, re.IGNORECASE)
+    if found_placeholders:
+        unique_matches = sorted(list(set(found_placeholders)))
+        errors.append(f"Detected unreplaced placeholder token(s): {', '.join(unique_matches)}")
+
+    if re.search(r"\[insert\s+[^\]]*\]", html, re.IGNORECASE):
+        errors.append("Detected unreplaced '[insert ...]' placeholder tag in content.")
+
+    # AI disclaimer leakage
+    ai_phrases = [
+        "as an ai language model",
+        "i cannot provide",
+        "lorem ipsum",
+        "todo:",
+        "here is your generated article",
+    ]
+    lower_html = html.lower()
+    for phrase in ai_phrases:
+        if phrase in lower_html:
+            errors.append(f"Detected prohibited AI boilerplate / placeholder phrase: '{phrase}'.")
+
+    return errors
+
+
+def generate_expansion_receipt(
+    site: str,
+    results: list[dict[str, Any]],
+    output_dir: str = "receipts",
+) -> str:
+    """Generate and write a Markdown audit receipt for a batch expansion run."""
+    import datetime
+    from pathlib import Path
+
+    out_path = Path(output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    filename = f"expand-receipt-{timestamp}.md"
+    file_path = out_path / filename
+
+    lines = [
+        f"# Katteb Content Expansion Receipt — {site}",
+        "",
+        f"- **Site**: `{site}`",
+        f"- **Timestamp (UTC)**: {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}",
+        f"- **Total Posts Processed**: {len(results)}",
+        "",
+        "## Summary of Processed Posts",
+        "",
+        "| Post ID | Title | Previous Words | New Words | Delta | Status | RankMath SEO |",
+        "|---------|-------|----------------|-----------|-------|--------|--------------|",
+    ]
+
+    for r in results:
+        pid = r.get("post_id", "N/A")
+        title = r.get("title", "N/A")
+        prev_w = r.get("previous_word_count", 0)
+        new_w = r.get("new_word_count", 0)
+        delta = f"+{new_w - prev_w}" if new_w >= prev_w else f"{new_w - prev_w}"
+        status = "✅ Updated" if r.get("success") else f"❌ Failed ({r.get('error', 'Unknown')})"
+        has_seo = "Yes" if r.get("meta_title") else "No"
+        lines.append(f"| {pid} | {title} | {prev_w} | {new_w} | {delta} | {status} | {has_seo} |")
+
+    lines.append("")
+    lines.append("---")
+    lines.append("*Receipt auto-generated by Katteb WordPressFleetManager*")
+    lines.append("")
+
+    content = "\n".join(lines)
+    file_path.write_text(content, encoding="utf-8")
+    return str(file_path)
+
+
 class WordPressFleetManager:
     """Manages post auditing and AI content updates for WordPress fleet sites."""
 
     def __init__(self, client: KattebClient):
         self.client = client
         self.queue = KattebQueueManager(client)
+
+    def check_site_connectivity(self, site: str) -> bool:
+        """Check if WP-CLI can connect to the target fleet site."""
+        try:
+            alias = validate_site_alias(site)
+            res = run_wp_cli(alias, "core version", timeout=15)
+            return bool(res)
+        except Exception:
+            return False
 
     def audit_low_word_posts(
         self,
@@ -324,6 +498,15 @@ class WordPressFleetManager:
 
         if "Error (" in new_html and len(new_html) < 400:
             raise RuntimeError(f"Katteb generation returned an error payload: {new_html}")
+
+        # Quality Gate: validate heading hierarchy and placeholder tokens
+        val_errors = validate_generated_content(new_html, target_word_count=word_count)
+        if val_errors:
+            err_msg = "; ".join(val_errors)
+            raise ContentQualityError(
+                f"Generated content for post #{post_id} failed quality gates: {err_msg}",
+                errors=val_errors,
+            )
 
         # Clean meta_description from stray css or tags
         import re

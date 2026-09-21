@@ -92,64 +92,96 @@ class KattebClient:
         endpoint: str,
         params: dict[str, Any] | None = None,
         json_data: dict[str, Any] | None = None,
+        max_retries: int = 3,
+        backoff_factor: float = 2.0,
+        initial_delay: float = 1.0,
     ) -> dict[str, Any]:
-        """Execute HTTP request against Katteb endpoint parameter query style."""
+        """Execute HTTP request against Katteb endpoint with exponential backoff retries for 5xx/network errors."""
+        import random
+        import time
+
         request_params = {"endpoint": endpoint}
         if params:
             request_params.update(params)
 
         url = self.config.base_url
+        headers = self._headers()
+        last_error: Exception | None = None
 
-        try:
-            resp = self.session.request(
-                method=method.upper(),
-                url=url,
-                params=request_params,
-                json=json_data,
-                headers=self._headers(),
-                timeout=self.timeout,
-            )
-        except requests.exceptions.RequestException as e:
-            raise KattebAPIError(f"Network error connecting to Katteb API: {e}") from e
+        for attempt in range(max_retries + 1):
+            try:
+                resp = self.session.request(
+                    method=method.upper(),
+                    url=url,
+                    params=request_params,
+                    json=json_data,
+                    headers=headers,
+                    timeout=self.timeout,
+                )
+            except requests.exceptions.RequestException as e:
+                last_error = e
+                if attempt < max_retries:
+                    delay = initial_delay * (backoff_factor ** attempt) + random.uniform(0, 0.5)
+                    time.sleep(delay)
+                    continue
+                raise KattebAPIError(f"Network error connecting to Katteb API after {max_retries + 1} attempts: {e}") from e
 
-        # Parse JSON response
-        try:
-            data = resp.json()
-        except Exception:
-            data = {"success": resp.status_code in (200, 201), "error": resp.text}
+            # Parse JSON response
+            try:
+                data = resp.json()
+            except Exception:
+                data = {"success": resp.status_code in (200, 201), "error": resp.text}
 
-        if resp.status_code == 401:
-            raise KattebAuthError(
-                data.get("error", "Unauthorized: Invalid or missing API key"),
-                status_code=401,
-                response_data=data,
-            )
-        if resp.status_code == 402:
-            raise KattebCreditError(
-                data.get("error", "Insufficient credits to complete operation"),
-                status_code=402,
-                response_data=data,
-            )
-        if resp.status_code == 429:
-            retry_after = data.get("retry_after", 60)
-            job_id = data.get("active_job_id")
-            job_type = data.get("active_job_type")
-            raise KattebRateLimitError(
-                data.get("error", "Rate limit exceeded or heavy operation concurrency blocked"),
-                retry_after=retry_after,
-                active_job_id=job_id,
-                active_job_type=job_type,
-            )
-        if resp.status_code >= 400:
-            raise KattebAPIError(
-                data.get("error", f"API request failed with HTTP {resp.status_code}"),
-                status_code=resp.status_code,
-                response_data=data,
-            )
+            # Retry on 5xx server errors
+            if 500 <= resp.status_code < 600:
+                last_error = KattebAPIError(
+                    data.get("error", f"API server error with HTTP {resp.status_code}"),
+                    status_code=resp.status_code,
+                    response_data=data,
+                )
+                if attempt < max_retries:
+                    delay = initial_delay * (backoff_factor ** attempt) + random.uniform(0, 0.5)
+                    time.sleep(delay)
+                    continue
+                raise last_error
 
-        from typing import cast
+            # Non-retryable specific error codes
+            if resp.status_code == 401:
+                raise KattebAuthError(
+                    data.get("error", "Unauthorized: Invalid or missing API key"),
+                    status_code=401,
+                    response_data=data,
+                )
+            if resp.status_code == 402:
+                raise KattebCreditError(
+                    data.get("error", "Insufficient credits to complete operation"),
+                    status_code=402,
+                    response_data=data,
+                )
+            if resp.status_code == 429:
+                retry_after = data.get("retry_after", 60)
+                job_id = data.get("active_job_id")
+                job_type = data.get("active_job_type")
+                raise KattebRateLimitError(
+                    data.get("error", "Rate limit exceeded or heavy operation concurrency blocked"),
+                    retry_after=retry_after,
+                    active_job_id=job_id,
+                    active_job_type=job_type,
+                )
+            if resp.status_code >= 400:
+                raise KattebAPIError(
+                    data.get("error", f"API request failed with HTTP {resp.status_code}"),
+                    status_code=resp.status_code,
+                    response_data=data,
+                )
 
-        return cast(dict[str, Any], data)
+            from typing import cast
+
+            return cast(dict[str, Any], data)
+
+        if last_error:
+            raise last_error
+        raise KattebAPIError("Request failed after retries.")
 
     # -------------------------------------------------------------------------
     # Account & Metadata Endpoints
