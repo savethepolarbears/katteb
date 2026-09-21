@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class KattebErrorResponse(BaseModel):
@@ -189,13 +189,33 @@ class FactCheckResponse(BaseModel):
 class AccountCreditsResponse(BaseModel):
     """Response from GET account/credits."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     success: bool = True
-    credits: int | None = None
-    credits_total: int | None = None
+    credits: int | None = Field(default=None)
+    credits_available: int | None = Field(default=None, alias="credits_available")
+    credits_pool: int | None = Field(default=None, alias="credits_pool")
+    credits_total: int | None = Field(default=None, alias="credits_total")
+    brand_allocated: int | None = Field(default=None, alias="brand_allocated")
+    brands: list[dict[str, Any]] = Field(default_factory=list)
     plan_type: str | None = None
     plan_tier: str | None = None
     api_usage_today: dict[str, int] | None = None
     error: str | None = None
+
+    @model_validator(mode="after")
+    def populate_credits(self) -> "AccountCreditsResponse":
+        """Ensure credits reflects available or pool if not explicitly set."""
+        if self.credits is None:
+            if self.credits_available is not None:
+                self.credits = self.credits_available
+            elif self.credits_pool is not None:
+                self.credits = self.credits_pool
+            elif self.credits_total is not None:
+                self.credits = self.credits_total
+            else:
+                self.credits = 0
+        return self
 
 
 class AccountLimitsResponse(BaseModel):
