@@ -2,7 +2,13 @@
 
 ## What This Is
 
-A developer toolkit, command-line interface, and Python SDK for the Katteb API v2. It empowers digital publishing fleets and AI coding agents to generate 500–5,000 word SEO-optimized articles, execute competitor on-page SEO audits, humanize AI-generated text, perform real-time web-search fact-checking, and automate high-scale WordPress post auditing and expansion via WP-CLI with strict production safety guards.
+A developer toolkit, command-line interface, and Python SDK for the Katteb API v2. It empowers digital publishing fleets and AI coding agents to generate 500–5,000 word SEO-optimized articles, execute competitor on-page SEO audits, humanize AI-generated text, perform real-time web-search fact-checking, and automate high-scale WordPress post auditing and expansion via WP-CLI with strict production safety gates and fleet observability.
+
+## Current State
+
+**Shipped Version:** v1.0 (Hardened Fleet Engine) — 2026-09-22  
+**Test Suite:** 56 unit tests passing in 0.19s  
+**Nyquist Compliance:** 100% COMPLIANT across all 3 phases  
 
 ## Core Value
 
@@ -13,31 +19,38 @@ Resilient, production-safe generation and bulk enrichment of WordPress content a
 - **Customer**: Black Bear Media digital publishing properties (e.g., destinations.ai, viatravelers.com, santorinisecrets.com) and external developers using Katteb API v2.
 - **Revenue model**: Organic search monetization (AdSense, display ads, affiliate conversions) driven by expanding thin content into high-ranking, rich travel and gear guides.
 - **Success metric**: 100% successful post expansions with zero production database regressions or malformed HTML writes.
-- **Strategy notes**: Integral component of Black Bear Media's omnichannel autonomous content pipeline.
+- **Strategy notes**: Core engine for Black Bear Media's omnichannel autonomous content pipeline.
 
 ## Requirements
 
-### Validated
+### Validated in v1.0
 
-- ✓ **AUTH-01**: Credential resolution hierarchy (explicit parameter > `KATTEB_API_KEY` env var > `~/.katteb/config.json` > local `.env`) — v1.0
-- ✓ **CRED-01**: Credit and limit tracking (`katteb account credits`, `katteb account limits`) with credit pooling support (`pool_credits`, `available_credits`) — v1.0
-- ✓ **GEN-01**: Long-form article generation (500–5,000 words) with structured enhancements (`tldr`, `key_takeaways`, `faq`, `featured_image`, `internal_links`) — v1.0
-- ✓ **QUEUE-01**: Smart concurrency queue manager (`KattebQueueManager`) automatically intercepting HTTP 429 lockouts, polling running jobs until completion, and submitting queued requests — v1.0
-- ✓ **SEO-01**: On-page competitor SEO analysis via `katteb seo analyze` — v1.0
-- ✓ **HUMAN-01**: AI text detection and humanizer rewriting with strength levels and imperfection injection — v1.0
-- ✓ **FACT-01**: Web-search grounded claim verification via `katteb factcheck verify` — v1.0
-- ✓ **WP-01**: WordPress fleet post auditing for thin content (< 400 words) across custom post types (`destinations`, `post`, `gear`, `restaurant`) via WP-CLI — v1.0
-- ✓ **WP-02**: Destination CPT enrichment updating `post_content`, Pods `travel_guide`, and RankMath SEO metadata — v1.0
-- ✓ **GUARD-01**: Egress IP authorization guard intercepting 401 unauthorized errors with dashboard portal resolution links — v1.0
-- ✓ **GUARD-02**: Payload error guard preventing short error payloads (< 400 chars) from corrupting WordPress database fields — v1.0
-- ✓ **GUARD-03**: RankMath meta description sanitizer stripping inline `<style>` tags and stray CSS classes — v1.0
-- ✓ **CLI-01**: Dual-mode terminal output: Rich interactive visual tables vs machine-readable `--json` format — v1.0
+- ✓ **AUTH-01**: Credential resolution hierarchy (explicit parameter > `KATTEB_API_KEY` env var > `~/.katteb/config.json` > local `.env`)
+- ✓ **CRED-01**: Credit and limit tracking (`katteb account credits`, `katteb account limits`) with credit pooling support (`pool_credits`, `available_credits`)
+- ✓ **GEN-01**: Long-form article generation (500–5,000 words) with structured enhancements (`tldr`, `key_takeaways`, `faq`, `featured_image`, `internal_links`)
+- ✓ **QUEUE-01**: Smart concurrency queue manager (`KattebQueueManager`) automatically intercepting HTTP 429 lockouts, polling running jobs until completion, and submitting queued requests
+- ✓ **SEO-01**: On-page competitor SEO analysis via `katteb seo analyze`
+- ✓ **HUMAN-01**: AI text detection and humanizer rewriting with strength levels and imperfection injection
+- ✓ **FACT-01**: Web-search grounded claim verification via `katteb factcheck verify`
+- ✓ **WP-01**: WordPress fleet post auditing for thin content (< 400 words) across custom post types (`destinations`, `post`, `gear`, `restaurant`) via WP-CLI
+- ✓ **WP-02**: Destination CPT enrichment updating `post_content`, Pods `travel_guide`, and RankMath SEO metadata
+- ✓ **GUARD-01**: Egress IP authorization guard intercepting 401 unauthorized errors with dashboard portal resolution links (`TEST-01`)
+- ✓ **GUARD-02**: Payload error guard preventing short error payloads (< 400 chars) from corrupting WordPress database fields (`TEST-02`)
+- ✓ **GUARD-03**: RankMath meta description sanitizer stripping inline `<style>` tags and stray CSS classes (`TEST-03`)
+- ✓ **CLI-01**: Dual-mode terminal output: Rich interactive visual tables vs machine-readable `--json` format
+- ✓ **BATCH-01**: Multi-site WordPress batch expansion orchestration with configurable site aliases and shell-injection whitelist
+- ✓ **BATCH-02**: Exponential backoff retry policy with jitter for transient 5xx server errors and network connection drops
+- ✓ **BATCH-03**: Execution receipt generator writing timestamped markdown audit summaries (`expand-receipt-<timestamp>.md`)
+- ✓ **BATCH-04**: Content quality validator ensuring minimum H2/H3 heading hierarchy and rejecting unreplaced placeholder tokens
+- ✓ **OPS-01**: Activepieces webhook trigger / CLI integration interface for event-driven post expansions (`katteb pipeline-dispatch`)
+- ✓ **OPS-02**: Account credit threshold alert trigger warning operators when credit pool falls below configurable threshold (exit code 2)
+- ✓ **OPS-03**: Structured JSONL logging telemetry (`~/.katteb/telemetry.jsonl`) for integration into central fleet observability dashboards
 
-### Active
+### Next Milestone Goals (v2.0)
 
-- [ ] **TEST-01**: Comprehensive end-to-end unit and regression test suite validation across all guard rails, queue handlers, and model aliases
-- [ ] **BATCH-01**: Multi-site WordPress batch expansion orchestration with configurable retry-backoff policies and execution receipts
-- [ ] **OPS-01**: Webhook/Activepieces integration bridge exposing Katteb operations to external agent pipelines and credit depletion threshold alerts
+- [ ] **LANG-01**: Automatic language translation and localized idiom adaptation for German, Greek, and Spanish fleet sites.
+- [ ] **MEDIA-01**: Integration with local media asset DAM (`/Volumes/External-HD/TravelMediaDAM`) to automatically select and inject authentic photography into generated posts.
+- [ ] **FEED-01**: Automated re-audit of expanded posts 30 days post-publish comparing GSC rankings and CTR striking distance performance.
 
 ### Out of Scope
 
@@ -48,7 +61,7 @@ Resilient, production-safe generation and bulk enrichment of WordPress content a
 ## Context
 
 - **Technical Environment**: Python 3.10+ package built with Hatchling, Pydantic v2 data models, Click CLI, Rich terminal styling, and Requests HTTP client.
-- **Ecosystem**: Runs in headless automation scripts, CI/CD runners, and local developer environments across macOS and Linux.
+- **Ecosystem**: Runs in headless automation scripts, Activepieces / Make workflows, CI/CD runners, and local developer environments.
 - **WordPress Architecture**: Integrates with standard WordPress core (`wp_posts`), Pods Framework custom fields, and RankMath SEO meta tags.
 
 ## Constraints
@@ -66,24 +79,12 @@ Resilient, production-safe generation and bulk enrichment of WordPress content a
 | Queue Manager over raw HTTP retries | Intercepts 429 responses specifically, parses active job IDs, and polls gracefully without hitting rate limit bans | ✓ Good |
 | WP-CLI wrapper over XML-RPC/REST | Executes natively with site aliases on target WordPress servers without exposing external endpoints or requiring separate auth tokens | ✓ Good |
 | Dual Rich/JSON CLI formatters | Humans get styled terminal cards; agentic systems and CI get deterministic JSON payloads | ✓ Good |
-| Graphify Knowledge Graph in `.planning/graphs/` | Enables instant AST and community-based navigation across modules, god nodes, and inter-dependencies | — Pending |
-
-## Evolution
-
-This document evolves at phase transitions and milestone boundaries.
-
-**After each phase transition** (via `$gsd-transition`):
-1. Requirements invalidated? → Move to Out of Scope with reason
-2. Requirements validated? → Move to Validated with phase reference
-3. New requirements emerged? → Add to Active
-4. Decisions to log? → Add to Key Decisions
-5. "What This Is" still accurate? → Update if drifted
-
-**After each milestone** (via `$gsd-complete-milestone`):
-1. Full review of all sections
-2. Core Value check — still the right priority?
-3. Audit Out of Scope — reasons still valid?
-4. Update Context with current state
+| Site alias regex whitelist | Enforces alphanumeric/dash/dot patterns to prevent shell injection vulnerabilities in WP-CLI execution | ✓ Good |
+| Exponential backoff with jitter on 5xx | Automatically retries transient cloud errors while preserving discrete 401/402/429 exception paths | ✓ Good |
+| Content quality pre-validation | Rejects malformed headings and unreplaced placeholders via `ContentQualityError` before committing WP updates | ✓ Good |
+| Stdin/Stdout JSON pipeline dispatch | Standardizes headless Activepieces / automation invocation without terminal formatting interference | ✓ Good |
+| Exit code 2 on credit alerts | Enables native conditional branch routing in Activepieces and CI monitoring workflows | ✓ Good |
+| Graphify Knowledge Graph in `.planning/graphs/` | Enables instant AST and community-based navigation across 518 nodes and 33 communities | ✓ Good |
 
 ---
-*Last updated: 2026-09-21 after initialization*
+*Last updated: 2026-09-22 upon Milestone 1.0 Completion*
