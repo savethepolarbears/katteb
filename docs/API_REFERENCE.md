@@ -25,10 +25,10 @@ print(f"Available credits: {credits.credits}")
 ## API Endpoints & Methods
 
 ### 1. `get_credits()`
-Returns current credit balance, total credits, and daily heavy/read API usage counts.
+Returns current credit balance, total credits, pooled/available credits, brand allocations, and daily heavy/read API usage counts.
 
 - **Method:** `client.get_credits()`
-- **Returns:** `AccountCreditsResponse` (`credits`, `credits_total`, `plan_type`, `api_usage_today`)
+- **Returns:** `AccountCreditsResponse` (`credits`, `credits_available`, `credits_pool`, `credits_total`, `brand_allocated`, `brands`, `plan_type`, `api_usage_today`)
 
 ### 2. `get_limits()`
 Returns rate limit sliding window details.
