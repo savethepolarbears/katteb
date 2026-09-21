@@ -74,10 +74,36 @@ dmypy.json
 *.swo
 *~
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Logs & Temporary Files
+*.log
+*.tmp
+*.bak
+*.swp
+
+# Databases & Datastores
+*.db
+*.sqlite
+*.sqlite3
+api_logs.db
+
+# Agent & Workspace State
+.gemini/
+.claude/
+scratch/
+
+# Node / JS dependencies
+node_modules/
 
 # Credentials and secrets
 *.pem
 *.key
 *.token
 config.json
-api_logs.db
+secrets.json
+credentials.json
