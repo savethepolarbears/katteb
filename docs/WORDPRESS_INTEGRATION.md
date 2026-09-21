@@ -24,6 +24,11 @@ The Katteb toolkit includes deep integration with the Black Bear Media WordPress
   1. `post_content` — Expanded article copy.
   2. `rank_math_title` & `rank_math_description`.
 
+### 3. Production Safety Guards & Meta Sanitization
+- **IP Authorization Guard**: Intercepts `Error (401)` and `Your IP is not authorized` responses, prompting operators to add egress IPs at `https://app.katteb.com/api_access`.
+- **Payload Error Guard**: Validates that generated payloads under 400 characters do not contain raw backend error strings before updating the WordPress database.
+- **RankMath Meta Description Sanitizer**: Automatically strips inline `<style>...</style>` tags and stray CSS class selectors from generated meta descriptions before persistence.
+
 ---
 
 ## Batch Operations SOP
