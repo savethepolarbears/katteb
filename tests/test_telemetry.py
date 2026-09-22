@@ -214,3 +214,54 @@ def test_telemetry_cli_summary(tmp_path: Path):
     assert data["total_events"] == 1
     assert data["post_expansions"]["total_runs"] == 1
     assert data["post_expansions"]["total_words_generated"] == 1000
+
+
+def test_get_telemetry_events_invalid_limit(tmp_path: Path):
+    import pytest
+    with pytest.raises(ValueError) as exc:
+        get_telemetry_events(limit=0)
+    assert "greater than 0" in str(exc.value)
+
+    with pytest.raises(ValueError) as exc:
+        get_telemetry_events(limit=-5)
+    assert "greater than 0" in str(exc.value)
+
+
+def test_get_telemetry_summary_corrupted_lines(tmp_path: Path):
+    log_file = tmp_path / "corrupt_summary.jsonl"
+    log_file.write_text(
+        '{"timestamp": "2026-09-22T00:00:00Z", "event_type": "post_expansion", "success": true, "words_generated": 1000}\n'
+        'NOT_A_VALID_JSON_LINE\n'
+        '{"timestamp": "2026-09-22T00:01:00Z", "event_type": "post_expansion", "success": false}\n'
+        'ANOTHER_CORRUPTED_LINE{{{\n',
+        encoding="utf-8",
+    )
+
+    summary = get_telemetry_summary(log_path=log_file)
+    assert summary["total_events"] == 2
+    assert summary["corrupted_lines_count"] == 2
+    assert summary["post_expansions"]["total_runs"] == 2
+    assert summary["post_expansions"]["successful_runs"] == 1
+    assert summary["post_expansions"]["failed_runs"] == 1
+
+
+def test_log_telemetry_concurrent_writes(tmp_path: Path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    log_file = tmp_path / "concurrent_telemetry.jsonl"
+    total_writers = 20
+
+    def write_worker(idx: int):
+        log_telemetry_event(
+            event_type="concurrent_test",
+            data={"worker_id": idx, "message": f"Message from worker {idx}"},
+            log_path=log_file,
+        )
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        list(executor.map(write_worker, range(total_writers)))
+
+    events = get_telemetry_events(limit=100, log_path=log_file)
+    assert len(events) == total_writers
+    worker_ids = {e["worker_id"] for e in events}
+    assert worker_ids == set(range(total_writers))

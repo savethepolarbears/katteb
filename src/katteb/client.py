@@ -38,9 +38,20 @@ class KattebAPIError(Exception):
 
 
 class KattebAuthError(KattebAPIError):
-    """Raised on 401 Unauthorized."""
+    """Raised on 401 Unauthorized or IP authorization errors."""
 
-    pass
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 401,
+        response_data: dict[str, Any] | None = None,
+        is_ip_auth_error: bool = False,
+        portal_url: str | None = None,
+    ):
+        super().__init__(message, status_code=status_code, response_data=response_data)
+        self.is_ip_auth_error = is_ip_auth_error
+        self.portal_url = portal_url
+
 
 
 class KattebCreditError(KattebAPIError):
@@ -74,10 +85,12 @@ class KattebClient:
         base_url: str | None = None,
         timeout: int = 60,
         session: requests.Session | None = None,
+        sleeper: Any = None,
     ):
         self.config = get_config(api_key=api_key, base_url=base_url)
         self.timeout = timeout
         self.session = session or requests.Session()
+        self.sleeper = sleeper
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -95,8 +108,10 @@ class KattebClient:
         max_retries: int = 3,
         backoff_factor: float = 2.0,
         initial_delay: float = 1.0,
+        retry_unsafe: bool = False,
+        total_timeout: float | None = None,
     ) -> dict[str, Any]:
-        """Execute HTTP request against Katteb endpoint with exponential backoff retries for 5xx/network errors."""
+        """Execute HTTP request against Katteb endpoint with backoff retries for idempotent/safe requests."""
         import random
         import time
 
@@ -107,8 +122,14 @@ class KattebClient:
         url = self.config.base_url
         headers = self._headers()
         last_error: Exception | None = None
+        is_idempotent = method.upper() in ("GET", "HEAD", "OPTIONS")
+        can_retry = is_idempotent or retry_unsafe
+        start_monotonic = time.monotonic()
 
         for attempt in range(max_retries + 1):
+            if total_timeout and (time.monotonic() - start_monotonic) >= total_timeout:
+                raise KattebAPIError(f"Request exceeded total timeout budget of {total_timeout}s")
+
             try:
                 resp = self.session.request(
                     method=method.upper(),
@@ -120,11 +141,11 @@ class KattebClient:
                 )
             except requests.exceptions.RequestException as e:
                 last_error = e
-                if attempt < max_retries:
+                if can_retry and attempt < max_retries:
                     delay = initial_delay * (backoff_factor ** attempt) + random.uniform(0, 0.5)
-                    time.sleep(delay)
+                    (self.sleeper or time.sleep)(delay)
                     continue
-                raise KattebAPIError(f"Network error connecting to Katteb API after {max_retries + 1} attempts: {e}") from e
+                raise KattebAPIError(f"Network error connecting to Katteb API ({method.upper()} {endpoint}): {e}") from e
 
             # Parse JSON response
             try:
@@ -132,25 +153,60 @@ class KattebClient:
             except Exception:
                 data = {"success": resp.status_code in (200, 201), "error": resp.text}
 
-            # Retry on 5xx server errors
+            # Retry on 5xx server errors for safe/idempotent operations
             if 500 <= resp.status_code < 600:
                 last_error = KattebAPIError(
                     data.get("error", f"API server error with HTTP {resp.status_code}"),
                     status_code=resp.status_code,
                     response_data=data,
                 )
-                if attempt < max_retries:
-                    delay = initial_delay * (backoff_factor ** attempt) + random.uniform(0, 0.5)
-                    time.sleep(delay)
+                if can_retry and attempt < max_retries:
+                    # Check Retry-After header
+                    retry_header = resp.headers.get("Retry-After")
+                    if retry_header:
+                        try:
+                            delay = min(float(retry_header), 60.0)
+                        except ValueError:
+                            delay = initial_delay * (backoff_factor ** attempt) + random.uniform(0, 0.5)
+                    else:
+                        delay = initial_delay * (backoff_factor ** attempt) + random.uniform(0, 0.5)
+                    (self.sleeper or time.sleep)(delay)
                     continue
                 raise last_error
 
+            # Embedded error status on 200 OK
+            if resp.status_code == 200 and data.get("status") == "error":
+                raise KattebAPIError(
+                    data.get("message") or data.get("error") or "API returned error payload with status: error",
+                    status_code=200,
+                    response_data=data,
+                )
+
             # Non-retryable specific error codes
             if resp.status_code == 401:
+                err_msg = data.get("error", "Unauthorized: Invalid or missing API key")
+                err_code = data.get("code") or data.get("error_code")
+                is_ip_auth = (
+                    err_code == "ip_auth_required"
+                    or err_msg == "ip_auth_required"
+                    or "ip is not authorized" in str(err_msg).lower()
+                    or "ip_auth_required" in str(data).lower()
+                )
+                portal_url = data.get("portal_url") or "https://app.katteb.com/api_access"
+                if is_ip_auth:
+                    msg = (
+                        f"Katteb API IP authorization required: your public egress IP is not whitelisted.\n"
+                        f"Please add your IP to the allowed list in your Katteb dashboard: {portal_url}"
+                    )
+                else:
+                    msg = err_msg
+
                 raise KattebAuthError(
-                    data.get("error", "Unauthorized: Invalid or missing API key"),
+                    msg,
                     status_code=401,
                     response_data=data,
+                    is_ip_auth_error=is_ip_auth,
+                    portal_url=portal_url if is_ip_auth else None,
                 )
             if resp.status_code == 402:
                 raise KattebCreditError(
@@ -159,7 +215,11 @@ class KattebClient:
                     response_data=data,
                 )
             if resp.status_code == 429:
-                retry_after = data.get("retry_after", 60)
+                retry_after = data.get("retry_after") or resp.headers.get("Retry-After", 60)
+                try:
+                    retry_after = int(retry_after)
+                except ValueError:
+                    retry_after = 60
                 job_id = data.get("active_job_id")
                 job_type = data.get("active_job_type")
                 raise KattebRateLimitError(

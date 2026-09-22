@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -10,10 +12,19 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from katteb.wordpress import WordPressFleetManager, generate_expansion_receipt, validate_site_alias
 
 
+def _redact_sensitive_tokens(msg: str) -> str:
+    """Redact API keys, bearer tokens, and credentials from error strings."""
+    if not msg:
+        return msg
+    msg = re.sub(r"(Bearer\s+)[A-Za-z0-9_\-\.]{8,}", r"\1[REDACTED]", msg, flags=re.IGNORECASE)
+    msg = re.sub(r"((?:api[-_]?key|token)[\"'\s:=]+)[A-Za-z0-9_\-\.]{8,}", r"\1[REDACTED]", msg, flags=re.IGNORECASE)
+    return msg
+
+
 class PipelineEventPayload(BaseModel):
     """Schema for inbound webhook / automation requests (e.g. from Activepieces)."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     event: str = Field(default="post_expansion_requested", description="Event identifier")
     site: str = Field(..., description="Target WordPress fleet site alias")
@@ -97,6 +108,22 @@ def process_pipeline_event(
     manager = wp_manager or WordPressFleetManager()
 
     try:
+        if validated.receipt_dir:
+            resolved_rcpt = Path(validated.receipt_dir).resolve()
+            forbidden_roots = [
+                f.resolve() for f in [Path("/etc"), Path("/var"), Path("/usr"), Path("/bin"), Path("/sbin"), Path("/System"), Path("/private")]
+            ]
+            for f_root in forbidden_roots:
+                if resolved_rcpt == f_root or f_root in resolved_rcpt.parents:
+                    return {
+                        "success": False,
+                        "error": f"Insecure receipt_dir '{validated.receipt_dir}' inside system root '{f_root}'",
+                        "event": validated.event,
+                        "site": sanitized_site,
+                        "post_id": validated.post_id,
+                        "dry_run": validated.dry_run,
+                    }
+
         res = manager.expand_and_update_post(
             site=sanitized_site,
             post_id=validated.post_id,
@@ -107,6 +134,16 @@ def process_pipeline_event(
             guidelines=validated.guidelines,
             dry_run=validated.dry_run,
         )
+
+        if not res.get("success", False) and not res.get("dry_run", False):
+            return {
+                "success": False,
+                "error": _redact_sensitive_tokens(str(res.get("error", "WordPress post expansion failed"))),
+                "event": validated.event,
+                "site": sanitized_site,
+                "post_id": validated.post_id,
+                "dry_run": validated.dry_run,
+            }
 
         receipt_path = None
         if validated.receipt_dir and not validated.dry_run:
@@ -131,7 +168,7 @@ def process_pipeline_event(
     except Exception as exc:
         return {
             "success": False,
-            "error": str(exc),
+            "error": _redact_sensitive_tokens(str(exc)),
             "event": validated.event,
             "site": sanitized_site,
             "post_id": validated.post_id,

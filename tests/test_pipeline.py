@@ -175,3 +175,59 @@ def test_pipeline_dispatch_cli_stdin():
         data = json.loads(result.output)
         assert data["success"] is True
         assert data["new_word_count"] == 1750
+
+
+def test_pipeline_payload_forbids_extra_fields():
+    payload = {
+        "event": "post_expansion_requested",
+        "site": "destinations-ai",
+        "post_id": 123,
+        "unexpected_field": "injected_value",
+    }
+    with pytest.raises(Exception):
+        PipelineEventPayload.model_validate(payload)
+
+
+def test_process_pipeline_event_insecure_receipt_dir():
+    payload = {
+        "event": "post_expansion_requested",
+        "site": "destinations-ai",
+        "post_id": 123,
+        "receipt_dir": "/etc/shadow_leak",
+    }
+    res = process_pipeline_event(payload)
+    assert res["success"] is False
+    assert "Insecure receipt_dir" in res["error"]
+
+
+def test_process_pipeline_event_propagates_failure():
+    mock_manager = MagicMock()
+    mock_manager.expand_and_update_post.return_value = {
+        "success": False,
+        "error": "WP CLI post update failed with exit code 1",
+    }
+    payload = {
+        "event": "post_expansion_requested",
+        "site": "destinations-ai",
+        "post_id": 123,
+    }
+    res = process_pipeline_event(payload, wp_manager=mock_manager)
+    assert res["success"] is False
+    assert "WP CLI post update failed" in res["error"]
+
+
+def test_process_pipeline_event_redacts_tokens():
+    mock_manager = MagicMock()
+    mock_manager.expand_and_update_post.side_effect = RuntimeError(
+        "Katteb API error with api_key=secret_katteb_token_12345 and Bearer sensitive_bearer_token_xyz"
+    )
+    payload = {
+        "event": "post_expansion_requested",
+        "site": "destinations-ai",
+        "post_id": 123,
+    }
+    res = process_pipeline_event(payload, wp_manager=mock_manager)
+    assert res["success"] is False
+    assert "secret_katteb_token_12345" not in res["error"]
+    assert "sensitive_bearer_token_xyz" not in res["error"]
+    assert "[REDACTED]" in res["error"]

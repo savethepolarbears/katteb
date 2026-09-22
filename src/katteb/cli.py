@@ -144,10 +144,16 @@ def account_check_threshold(ctx: click.Context, threshold: int | None, output_js
     """Check if credit reserves are above alert threshold (exits with code 2 if depleted)."""
     from katteb.telemetry import check_credit_threshold
 
-    client = get_client(ctx)
     as_json = ctx.obj.get("as_json", False) or output_json
-
-    status_data = check_credit_threshold(client, threshold=threshold)
+    try:
+        client = get_client(ctx)
+        status_data = check_credit_threshold(client, threshold=threshold)
+    except Exception as exc:
+        if as_json:
+            print_json({"success": False, "error": str(exc), "status": "ERROR"})
+        else:
+            console.print(f"❌ [bold red]Error checking credit threshold:[/bold red] {exc}")
+        sys.exit(1)
 
     if as_json:
         print_json(status_data)
@@ -551,29 +557,38 @@ def wp_batch_expand(ctx: click.Context, site: str, post_type: str, limit: int, w
     targets = low_posts[:limit]
 
     if not targets:
-        console.print(f"[yellow]No posts under 400 words found for {post_type} on {site}.[/yellow]")
+        if as_json:
+            print_json({"batch_results": [], "message": f"No posts under 400 words found for {post_type} on {site}."})
+        else:
+            console.print(f"[yellow]No posts under 400 words found for {post_type} on {site}.[/yellow]")
         return
 
-    console.print(f"🎯 Selected {len(targets)} lowest word count posts from {site} for expansion:")
-    for i, t in enumerate(targets, 1):
-        console.print(f"  {i}. ID: {t['id']} | Title: {t['title']} | Current Words: {t['content_wc']}")
+    if not as_json:
+        console.print(f"🎯 Selected {len(targets)} lowest word count posts from {site} for expansion:")
+        for i, t in enumerate(targets, 1):
+            console.print(f"  {i}. ID: {t['id']} | Title: {t['title']} | Current Words: {t['content_wc']}")
 
     if dry_run:
-        console.print("\n[yellow]Dry-run mode active. No posts modified.[/yellow]")
+        if as_json:
+            print_json({"dry_run": True, "site": site, "post_type": post_type, "targets": targets})
+        else:
+            console.print("\n[yellow]Dry-run mode active. No posts modified.[/yellow]")
         return
 
     results = []
     for idx, t in enumerate(targets, 1):
-        console.print(f"\n[{idx}/{len(targets)}] Processing Post #{t['id']}: {t['title']}...")
+        if not as_json:
+            console.print(f"\n[{idx}/{len(targets)}] Processing Post #{t['id']}: {t['title']}...")
         try:
             res = wp_mgr.expand_and_update_post(
                 site=site,
                 post_id=t["id"],
                 word_count=words,
-                on_status=lambda m: console.print(f"   {m}"),
+                on_status=None if as_json else (lambda m: console.print(f"   {m}")),
             )
             results.append(res)
-            console.print(f"   ✅ Updated Post #{t['id']}: {res['previous_word_count']}w ➔ {res['new_word_count']}w")
+            if not as_json:
+                console.print(f"   ✅ Updated Post #{t['id']}: {res['previous_word_count']}w ➔ {res['new_word_count']}w")
         except Exception as e:
             results.append({
                 "success": False,
@@ -583,7 +598,8 @@ def wp_batch_expand(ctx: click.Context, site: str, post_type: str, limit: int, w
                 "previous_word_count": t.get("content_wc", 0),
                 "new_word_count": t.get("content_wc", 0),
             })
-            console.print(f"   ❌ Error on Post #{t['id']}: {e}")
+            if not as_json:
+                console.print(f"   ❌ Error on Post #{t['id']}: {e}")
 
     receipt_file = None
     if results:
@@ -628,6 +644,14 @@ def pipeline_dispatch(
     from katteb.pipeline import process_pipeline_event
 
     as_json = ctx.obj.get("as_json", False) or output_json or use_stdin
+
+    if not use_stdin and not payload_file and not (site and post_id):
+        err_msg = "Missing payload source: Provide --stdin, --file, or both --site and --post-id."
+        if as_json:
+            print_json({"success": False, "error": err_msg})
+        else:
+            console.print(f"[bold red]Error:[/bold red] {err_msg}")
+        sys.exit(1)
 
     raw_payload: dict = {}
     if use_stdin:

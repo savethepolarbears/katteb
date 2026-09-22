@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -24,7 +27,7 @@ def log_telemetry_event(
     data: dict[str, Any],
     log_path: Path | str | None = None,
 ) -> Path:
-    """Append a structured JSON line event to the telemetry log file."""
+    """Append a structured JSON line event to the telemetry log file with atomic file locking."""
     path = resolve_log_path(log_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -34,8 +37,15 @@ def log_telemetry_event(
         **data,
     }
 
+    payload = json.dumps(record, default=str) + "\n"
     with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, default=str) + "\n")
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
     return path
 
@@ -44,12 +54,16 @@ def get_telemetry_events(
     limit: int = 50,
     log_path: Path | str | None = None,
 ) -> list[dict[str, Any]]:
-    """Read the most recent N telemetry events from log file."""
+    """Read the most recent N telemetry events from log file with bounded memory usage."""
+    if limit <= 0:
+        raise ValueError(f"limit must be greater than 0, got {limit}")
+    limit = min(limit, 50000)
+
     path = resolve_log_path(log_path)
     if not path.is_file():
         return []
 
-    events: list[dict[str, Any]] = []
+    events_deque: deque[dict[str, Any]] = deque(maxlen=limit)
     try:
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
@@ -57,21 +71,22 @@ def get_telemetry_events(
                 if not line:
                     continue
                 try:
-                    events.append(json.loads(line))
+                    events_deque.append(json.loads(line))
                 except json.JSONDecodeError:
                     continue
     except OSError:
         return []
 
-    return events[-limit:]
+    return list(events_deque)
 
 
 def get_telemetry_summary(log_path: Path | str | None = None) -> dict[str, Any]:
-    """Calculate aggregate telemetry and performance metrics across recorded events."""
-    events = get_telemetry_events(limit=100000, log_path=log_path)
+    """Calculate aggregate telemetry and performance metrics by streaming events directly."""
+    path = resolve_log_path(log_path)
 
     summary: dict[str, Any] = {
-        "total_events": len(events),
+        "total_events": 0,
+        "corrupted_lines_count": 0,
         "events_by_type": {},
         "post_expansions": {
             "total_runs": 0,
@@ -86,42 +101,59 @@ def get_telemetry_summary(log_path: Path | str | None = None) -> dict[str, Any]:
         },
     }
 
+    if not path.is_file():
+        return summary
+
     pe = summary["post_expansions"]
 
-    for ev in events:
-        etype = ev.get("event_type", "unknown")
-        summary["events_by_type"][etype] = summary["events_by_type"].get(etype, 0) + 1
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    summary["corrupted_lines_count"] += 1
+                    continue
 
-        if etype == "post_expansion":
-            pe["total_runs"] += 1
-            success = ev.get("success", False)
-            if success:
-                pe["successful_runs"] += 1
-            else:
-                pe["failed_runs"] += 1
+                summary["total_events"] += 1
+                etype = ev.get("event_type", "unknown")
+                summary["events_by_type"][etype] = summary["events_by_type"].get(etype, 0) + 1
 
-            words = int(ev.get("words_generated") or 0)
-            credits_used = int(ev.get("credits_used") or 0)
-            duration = float(ev.get("duration_seconds") or 0.0)
+                if etype == "post_expansion":
+                    pe["total_runs"] += 1
+                    success = ev.get("success", False)
+                    if success:
+                        pe["successful_runs"] += 1
+                    else:
+                        pe["failed_runs"] += 1
 
-            pe["total_words_generated"] += words
-            pe["total_credits_used"] += credits_used
-            pe["total_duration_seconds"] += duration
+                    words = int(ev.get("words_generated") or 0)
+                    credits_used = int(ev.get("credits_used") or 0)
+                    duration = float(ev.get("duration_seconds") or 0.0)
 
-            site = ev.get("site") or "unknown"
-            if site not in pe["sites"]:
-                pe["sites"][site] = {
-                    "runs": 0,
-                    "successful_runs": 0,
-                    "words_generated": 0,
-                    "credits_used": 0,
-                }
-            site_stat = pe["sites"][site]
-            site_stat["runs"] += 1
-            if success:
-                site_stat["successful_runs"] += 1
-            site_stat["words_generated"] += words
-            site_stat["credits_used"] += credits_used
+                    pe["total_words_generated"] += words
+                    pe["total_credits_used"] += credits_used
+                    pe["total_duration_seconds"] += duration
+
+                    site = ev.get("site") or "unknown"
+                    if site not in pe["sites"]:
+                        pe["sites"][site] = {
+                            "runs": 0,
+                            "successful_runs": 0,
+                            "words_generated": 0,
+                            "credits_used": 0,
+                        }
+                    site_stat = pe["sites"][site]
+                    site_stat["runs"] += 1
+                    if success:
+                        site_stat["successful_runs"] += 1
+                    site_stat["words_generated"] += words
+                    site_stat["credits_used"] += credits_used
+    except OSError:
+        pass
 
     if pe["total_runs"] > 0:
         pe["success_rate_percent"] = round((pe["successful_runs"] / pe["total_runs"]) * 100, 1)

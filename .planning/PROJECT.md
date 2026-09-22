@@ -23,28 +23,34 @@ Resilient, production-safe generation and bulk enrichment of WordPress content a
 
 ## Requirements
 
-### Validated in v1.0
+### Milestone 1.0 Hardened Fleet Engine Scope (13/13 Validated)
 
-- ✓ **AUTH-01**: Credential resolution hierarchy (explicit parameter > `KATTEB_API_KEY` env var > `~/.katteb/config.json` > local `.env`)
-- ✓ **CRED-01**: Credit and limit tracking (`katteb account credits`, `katteb account limits`) with credit pooling support (`pool_credits`, `available_credits`)
-- ✓ **GEN-01**: Long-form article generation (500–5,000 words) with structured enhancements (`tldr`, `key_takeaways`, `faq`, `featured_image`, `internal_links`)
-- ✓ **QUEUE-01**: Smart concurrency queue manager (`KattebQueueManager`) automatically intercepting HTTP 429 lockouts, polling running jobs until completion, and submitting queued requests
+- ✓ **TEST-01**: IP authorization guard intercepting 401 unauthorized errors with dashboard portal resolution links (`client.py`, `wordpress.py`)
+- ✓ **TEST-02**: Payload error guard preventing short or non-HTML error payloads (< 400 chars) from corrupting WordPress database fields (`wordpress.py`)
+- ✓ **TEST-03**: RankMath meta description sanitizer stripping inline `<style>` tags, scripts, and stray CSS rules (`wordpress.py`)
+- ✓ **TEST-04**: Credit pooling model parsing and aliases (`available_credits`, `pool_credits`) (`models.py`)
+- ✓ **TEST-05**: Queue concurrency 429 interception, polling, and serial submission (`queue.py`)
+- ✓ **TEST-06**: Comprehensive test suite pass in local and CI environments (`tests/`)
+- ✓ **BATCH-01**: Multi-site WordPress batch expansion orchestration with fleet profile registry and alias authorization (`wordpress.py`)
+- ✓ **BATCH-02**: Exponential backoff retry policy with jitter for transient 5xx server errors and network connection drops (`client.py`)
+- ✓ **BATCH-03**: Execution receipt generator writing timestamped markdown and JSON audit summaries (`expand-receipt-<timestamp>.md`)
+- ✓ **BATCH-04**: Content quality gate enforcing visible-text word counts, DOM heading hierarchy, and extended placeholder token rejection (`wordpress.py`)
+- ✓ **OPS-01**: Activepieces webhook trigger and headless pipeline dispatch interface (`katteb pipeline-dispatch`, `pipeline.py`)
+- ✓ **OPS-02**: Account credit threshold alert trigger warning operators when credit pool falls below configurable threshold (exit code 2) (`telemetry.py`, `cli.py`)
+- ✓ **OPS-03**: Structured JSONL logging telemetry (`~/.katteb/telemetry.jsonl`) with atomic file locking and stream aggregation (`telemetry.py`)
+
+### Foundational SDK Features (Pre-existing Baseline)
+
+- ✓ **AUTH-01**: Credential resolution hierarchy (explicit parameter > `KATTEB_API_KEY` env var > local `.env` > `~/.katteb/config.json` > `~/.env`)
+- ✓ **CRED-01**: Credit and limit tracking (`katteb account credits`, `katteb account limits`)
+- ✓ **GEN-01**: Long-form article generation (500–5,000 words) with structured enhancements (`tldr`, `key_takeaways`, `faq`)
+- ✓ **QUEUE-01**: Smart concurrency queue manager (`KattebQueueManager`)
 - ✓ **SEO-01**: On-page competitor SEO analysis via `katteb seo analyze`
 - ✓ **HUMAN-01**: AI text detection and humanizer rewriting with strength levels and imperfection injection
 - ✓ **FACT-01**: Web-search grounded claim verification via `katteb factcheck verify`
-- ✓ **WP-01**: WordPress fleet post auditing for thin content (< 400 words) across custom post types (`destinations`, `post`, `gear`, `restaurant`) via WP-CLI
+- ✓ **WP-01**: WordPress fleet post auditing for thin content (< 400 words) across custom post types
 - ✓ **WP-02**: Destination CPT enrichment updating `post_content`, Pods `travel_guide`, and RankMath SEO metadata
-- ✓ **GUARD-01**: Egress IP authorization guard intercepting 401 unauthorized errors with dashboard portal resolution links (`TEST-01`)
-- ✓ **GUARD-02**: Payload error guard preventing short error payloads (< 400 chars) from corrupting WordPress database fields (`TEST-02`)
-- ✓ **GUARD-03**: RankMath meta description sanitizer stripping inline `<style>` tags and stray CSS classes (`TEST-03`)
 - ✓ **CLI-01**: Dual-mode terminal output: Rich interactive visual tables vs machine-readable `--json` format
-- ✓ **BATCH-01**: Multi-site WordPress batch expansion orchestration with configurable site aliases and shell-injection whitelist
-- ✓ **BATCH-02**: Exponential backoff retry policy with jitter for transient 5xx server errors and network connection drops
-- ✓ **BATCH-03**: Execution receipt generator writing timestamped markdown audit summaries (`expand-receipt-<timestamp>.md`)
-- ✓ **BATCH-04**: Content quality validator ensuring minimum H2/H3 heading hierarchy and rejecting unreplaced placeholder tokens
-- ✓ **OPS-01**: Activepieces webhook trigger / CLI integration interface for event-driven post expansions (`katteb pipeline-dispatch`)
-- ✓ **OPS-02**: Account credit threshold alert trigger warning operators when credit pool falls below configurable threshold (exit code 2)
-- ✓ **OPS-03**: Structured JSONL logging telemetry (`~/.katteb/telemetry.jsonl`) for integration into central fleet observability dashboards
 
 ### Next Milestone Goals (v2.0)
 

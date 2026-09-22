@@ -78,7 +78,12 @@ class KattebConfig:
         if key := os.getenv("KATTEB_API_KEY"):
             return key.strip()
 
-        # 2. Global ~/.katteb/config.json
+        # 2. Load from local .env or parent .env files
+        load_dotenv(override=False)
+        if key := os.getenv("KATTEB_API_KEY"):
+            return key.strip()
+
+        # 3. Global ~/.katteb/config.json
         if CONFIG_FILE.is_file():
             try:
                 with open(CONFIG_FILE, encoding="utf-8") as f:
@@ -87,11 +92,6 @@ class KattebConfig:
                         return str(key).strip()
             except (OSError, json.JSONDecodeError) as e:
                 logger.warning("Failed to read configuration file at %s: %s", CONFIG_FILE, e)
-
-        # 3. Load from local .env or parent .env files
-        load_dotenv(override=False)
-        if key := os.getenv("KATTEB_API_KEY"):
-            return key.strip()
 
         # 4. ~/.env
         home_env = Path.home() / ".env"
