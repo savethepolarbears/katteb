@@ -107,3 +107,11 @@ node_modules/
 config.json
 secrets.json
 credentials.json
+!.planning/config.json
+
+# Graphify build cache & outputs
+graphify-out/
+.planning/graphs/
+
+# Execution receipts
+receipts/

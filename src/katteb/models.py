@@ -260,3 +260,19 @@ class BrandsListResponse(BaseModel):
     count: int | None = 0
     hint: str | None = None
     error: str | None = None
+
+
+class PreflightResult(BaseModel):
+    """Typed result of WordPress site preflight connectivity check."""
+
+    success: bool
+    site: str
+    category: str = "ok"  # "ok", "invalid_alias", "unauthorized_alias", "ssh_error", "wp_error", "timeout"
+    message: str = ""
+    version: str | None = None
+    exit_code: int = 0
+
+    def __bool__(self) -> bool:
+        return self.success
+
+

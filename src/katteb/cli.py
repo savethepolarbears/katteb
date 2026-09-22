@@ -136,6 +136,44 @@ def account_limits(ctx: click.Context):
         console.print(res)
 
 
+@account.command("check-threshold")
+@click.option("--threshold", type=int, default=None, help="Credit warning threshold")
+@click.option("--json", "output_json", is_flag=True, help="Output pure JSON format")
+@click.pass_context
+def account_check_threshold(ctx: click.Context, threshold: int | None, output_json: bool):
+    """Check if credit reserves are above alert threshold (exits with code 2 if depleted)."""
+    from katteb.telemetry import check_credit_threshold
+
+    as_json = ctx.obj.get("as_json", False) or output_json
+    try:
+        client = get_client(ctx)
+        status_data = check_credit_threshold(client, threshold=threshold)
+    except Exception as exc:
+        if as_json:
+            print_json({"success": False, "error": str(exc), "status": "ERROR"})
+        else:
+            console.print(f"❌ [bold red]Error checking credit threshold:[/bold red] {exc}")
+        sys.exit(1)
+
+    if as_json:
+        print_json(status_data)
+    else:
+        status = status_data["status"]
+        avail = status_data["available_credits"]
+        thresh = status_data["threshold"]
+        tier = status_data["plan_tier"]
+
+        if status == "OK":
+            console.print(f"✅ [bold green]Credits Healthy:[/bold green] {avail} remaining (threshold: {thresh}) | Tier: {tier}")
+        elif status == "WARNING":
+            console.print(f"⚠️  [bold yellow]Credit Warning:[/bold yellow] {avail} remaining (at/below threshold {thresh}) | Tier: {tier}")
+        else:
+            console.print(f"🚨 [bold red]Credits Depleted:[/bold red] 0 credits remaining! Tier: {tier}")
+
+    if status_data.get("depleted"):
+        sys.exit(2)
+
+
 @cli.group()
 def styles():
     """Manage writing styles."""
@@ -507,8 +545,9 @@ def wp_expand_post(ctx: click.Context, site: str, post_id: int, words: int, dry_
 @click.option("--limit", "-n", default=3, type=int, help="Number of lowest word count posts to expand (default: 3)")
 @click.option("--words", "-w", default=1500, type=int, help="Target word count per article")
 @click.option("--dry-run", is_flag=True, help="Preview batch plan without executing")
+@click.option("--receipt-dir", "-r", default="receipts", help="Directory to save markdown audit receipt (default: receipts)")
 @click.pass_context
-def wp_batch_expand(ctx: click.Context, site: str, post_type: str, limit: int, words: int, dry_run: bool):
+def wp_batch_expand(ctx: click.Context, site: str, post_type: str, limit: int, words: int, dry_run: bool, receipt_dir: str):
     """Batch expand the lowest word count posts for a post type on WordPress."""
     client = get_client(ctx)
     wp_mgr = WordPressFleetManager(client)
@@ -518,36 +557,253 @@ def wp_batch_expand(ctx: click.Context, site: str, post_type: str, limit: int, w
     targets = low_posts[:limit]
 
     if not targets:
-        console.print(f"[yellow]No posts under 400 words found for {post_type} on {site}.[/yellow]")
+        if as_json:
+            print_json({"batch_results": [], "message": f"No posts under 400 words found for {post_type} on {site}."})
+        else:
+            console.print(f"[yellow]No posts under 400 words found for {post_type} on {site}.[/yellow]")
         return
 
-    console.print(f"🎯 Selected {len(targets)} lowest word count posts from {site} for expansion:")
-    for i, t in enumerate(targets, 1):
-        console.print(f"  {i}. ID: {t['id']} | Title: {t['title']} | Current Words: {t['content_wc']}")
+    if not as_json:
+        console.print(f"🎯 Selected {len(targets)} lowest word count posts from {site} for expansion:")
+        for i, t in enumerate(targets, 1):
+            console.print(f"  {i}. ID: {t['id']} | Title: {t['title']} | Current Words: {t['content_wc']}")
 
     if dry_run:
-        console.print("\n[yellow]Dry-run mode active. No posts modified.[/yellow]")
+        if as_json:
+            print_json({"dry_run": True, "site": site, "post_type": post_type, "targets": targets})
+        else:
+            console.print("\n[yellow]Dry-run mode active. No posts modified.[/yellow]")
         return
 
     results = []
     for idx, t in enumerate(targets, 1):
-        console.print(f"\n[{idx}/{len(targets)}] Processing Post #{t['id']}: {t['title']}...")
+        if not as_json:
+            console.print(f"\n[{idx}/{len(targets)}] Processing Post #{t['id']}: {t['title']}...")
         try:
             res = wp_mgr.expand_and_update_post(
                 site=site,
                 post_id=t["id"],
                 word_count=words,
-                on_status=lambda m: console.print(f"   {m}"),
+                on_status=None if as_json else (lambda m: console.print(f"   {m}")),
             )
             results.append(res)
-            console.print(f"   ✅ Updated Post #{t['id']}: {res['previous_word_count']}w ➔ {res['new_word_count']}w")
+            if not as_json:
+                console.print(f"   ✅ Updated Post #{t['id']}: {res['previous_word_count']}w ➔ {res['new_word_count']}w")
         except Exception as e:
-            console.print(f"   ❌ Error on Post #{t['id']}: {e}")
+            results.append({
+                "success": False,
+                "post_id": t["id"],
+                "title": t["title"],
+                "error": str(e),
+                "previous_word_count": t.get("content_wc", 0),
+                "new_word_count": t.get("content_wc", 0),
+            })
+            if not as_json:
+                console.print(f"   ❌ Error on Post #{t['id']}: {e}")
+
+    receipt_file = None
+    if results:
+        from katteb.wordpress import generate_expansion_receipt
+
+        receipt_file = generate_expansion_receipt(site=site, results=results, output_dir=receipt_dir)
 
     if as_json:
-        print_json({"batch_results": results})
+        payload = {"batch_results": results}
+        if receipt_file:
+            payload["receipt_file"] = receipt_file
+        print_json(payload)
     else:
         console.print(f"\n🎉 [bold green]Batch Expansion Complete![/bold green] Processed {len(results)} posts.")
+        if receipt_file:
+            console.print(f"📄 Audit receipt written to: [bold cyan]{receipt_file}[/bold cyan]")
+
+
+@cli.command("pipeline-dispatch")
+@click.option("--stdin", "use_stdin", is_flag=True, help="Read JSON event payload from standard input")
+@click.option("-f", "--file", "payload_file", type=click.Path(exists=True), help="Path to JSON event payload file")
+@click.option("--site", help="Override site alias")
+@click.option("--post-id", type=int, help="Override post ID")
+@click.option("--words", type=int, help="Override target word count")
+@click.option("--dry-run", is_flag=True, default=None, help="Run in dry-run simulation mode")
+@click.option("--receipt-dir", help="Directory to save execution receipts")
+@click.option("--json", "output_json", is_flag=True, help="Output JSON format")
+@click.pass_context
+def pipeline_dispatch(
+    ctx: click.Context,
+    use_stdin: bool,
+    payload_file: str | None,
+    site: str | None,
+    post_id: int | None,
+    words: int | None,
+    dry_run: bool | None,
+    receipt_dir: str | None,
+    output_json: bool = False,
+):
+    """Activepieces & headless pipeline dispatch adapter for post expansion events."""
+    import json
+    from katteb.pipeline import process_pipeline_event
+
+    as_json = ctx.obj.get("as_json", False) or output_json or use_stdin
+
+    if not use_stdin and not payload_file and not (site and post_id):
+        err_msg = "Missing payload source: Provide --stdin, --file, or both --site and --post-id."
+        if as_json:
+            print_json({"success": False, "error": err_msg})
+        else:
+            console.print(f"[bold red]Error:[/bold red] {err_msg}")
+        sys.exit(1)
+
+    raw_payload: dict = {}
+    if use_stdin:
+        try:
+            stdin_text = sys.stdin.read()
+            if stdin_text.strip():
+                raw_payload = json.loads(stdin_text)
+        except Exception as e:
+            err_res = {"success": False, "error": f"Failed to read JSON from stdin: {e}"}
+            print_json(err_res)
+            sys.exit(1)
+    elif payload_file:
+        try:
+            with open(payload_file, "r", encoding="utf-8") as f:
+                raw_payload = json.load(f)
+        except Exception as e:
+            err_res = {"success": False, "error": f"Failed to read payload file: {e}"}
+            if as_json:
+                print_json(err_res)
+            else:
+                console.print(f"[bold red]Error:[/bold red] {e}")
+            sys.exit(1)
+
+    # CLI option overrides take precedence
+    if site:
+        raw_payload["site"] = site
+    if post_id:
+        raw_payload["post_id"] = post_id
+    if words:
+        raw_payload["target_words"] = words
+    if dry_run is not None:
+        raw_payload["dry_run"] = dry_run
+    if receipt_dir:
+        raw_payload["receipt_dir"] = receipt_dir
+    if "event" not in raw_payload:
+        raw_payload["event"] = "post_expansion_requested"
+
+    # Process through pipeline
+    result = process_pipeline_event(raw_payload)
+
+    if as_json:
+        print_json(result)
+    else:
+        if result.get("success"):
+            console.print(f"✅ [bold green]Pipeline event completed:[/bold green] Site: {result.get('site')} | Post #{result.get('post_id')}")
+            if result.get("dry_run"):
+                console.print(f"   [yellow]Simulation mode[/yellow]: Target {result.get('old_word_count')}w")
+            else:
+                console.print(f"   Updated word count: {result.get('old_word_count')} ➔ {result.get('new_word_count')}")
+            if result.get("receipt_path"):
+                console.print(f"   Receipt: [cyan]{result.get('receipt_path')}[/cyan]")
+        else:
+            console.print(f"❌ [bold red]Pipeline event failed:[/bold red] {result.get('error')}")
+
+    if not result.get("success"):
+        sys.exit(1)
+
+
+# =============================================================================
+# Telemetry Commands
+# =============================================================================
+
+
+@cli.group()
+def telemetry():
+    """Observability, execution telemetry, and fleet metrics."""
+    pass
+
+
+@telemetry.command("summary")
+@click.option("-f", "--file", "log_file", type=click.Path(exists=True), help="Custom telemetry log path")
+@click.option("--json", "output_json", is_flag=True, help="Output JSON format")
+@click.pass_context
+def telemetry_summary(ctx: click.Context, log_file: str | None, output_json: bool):
+    """Display fleet-wide performance and execution summary."""
+    from katteb.telemetry import get_telemetry_summary
+
+    as_json = ctx.obj.get("as_json", False) or output_json
+    summary = get_telemetry_summary(log_path=log_file)
+
+    if as_json:
+        print_json(summary)
+        return
+
+    pe = summary.get("post_expansions", {})
+    table = Table(title="📊 Katteb Fleet Telemetry Summary", show_header=True)
+    table.add_column("Metric", style="dim")
+    table.add_column("Value", style="bold")
+
+    table.add_row("Total Events Recorded", str(summary.get("total_events", 0)))
+    table.add_row("Total Post Expansions", str(pe.get("total_runs", 0)))
+    table.add_row("Success Rate", f"{pe.get('success_rate_percent', 0.0)}%")
+    table.add_row("Total Words Generated", f"{pe.get('total_words_generated', 0):,}")
+    table.add_row("Total Credits Used", str(pe.get("total_credits_used", 0)))
+    table.add_row("Average Duration", f"{pe.get('avg_duration_seconds', 0.0)}s")
+
+    console.print(table)
+
+    sites = pe.get("sites", {})
+    if sites:
+        site_table = Table(title="🌐 Per-Site Activity Breakdown", show_header=True)
+        site_table.add_column("Site Alias", style="cyan")
+        site_table.add_column("Runs", style="bold")
+        site_table.add_column("Words Generated", style="green")
+        site_table.add_column("Credits", style="magenta")
+
+        for site_alias, sdata in sites.items():
+            site_table.add_row(
+                site_alias,
+                str(sdata.get("runs", 0)),
+                f"{sdata.get('words_generated', 0):,}",
+                str(sdata.get("credits_used", 0)),
+            )
+        console.print(site_table)
+
+
+@telemetry.command("tail")
+@click.option("-n", "--limit", type=int, default=10, help="Number of recent events to display")
+@click.option("-f", "--file", "log_file", type=click.Path(exists=True), help="Custom telemetry log path")
+@click.option("--json", "output_json", is_flag=True, help="Output JSON format")
+@click.pass_context
+def telemetry_tail(ctx: click.Context, limit: int, log_file: str | None, output_json: bool):
+    """View recent telemetry event log records."""
+    from katteb.telemetry import get_telemetry_events
+
+    as_json = ctx.obj.get("as_json", False) or output_json
+    events = get_telemetry_events(limit=limit, log_path=log_file)
+
+    if as_json:
+        print_json({"events": events})
+        return
+
+    if not events:
+        console.print("[dim]No telemetry events recorded yet.[/dim]")
+        return
+
+    table = Table(title=f"📜 Recent Katteb Events (Last {len(events)})", show_header=True)
+    table.add_column("Timestamp", style="dim")
+    table.add_column("Type", style="cyan")
+    table.add_column("Site / Target", style="green")
+    table.add_column("Status", style="bold")
+    table.add_column("Words / Details", style="white")
+
+    for ev in events:
+        table.add_row(
+            ev.get("timestamp", "")[:19].replace("T", " "),
+            ev.get("event_type", ""),
+            str(ev.get("site") or ev.get("topic") or ""),
+            "[green]Success[/green]" if ev.get("success") else "[red]Failed[/red]",
+            f"+{ev.get('words_generated', 0)}w" if ev.get("words_generated") else str(ev.get("post_id") or ""),
+        )
+    console.print(table)
 
 
 def main():

@@ -1,13 +1,24 @@
 """WordPress Fleet Integration for auditing and expanding low-word-count posts via WP-CLI."""
 
+import base64
+import datetime
+import hashlib
+import html
 import json
+import logging
+import re
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Any
 
+from bs4 import BeautifulSoup
+
 from katteb.client import KattebClient
-from katteb.models import ArticleGetResponse
+from katteb.models import ArticleGetResponse, PreflightResult
 from katteb.queue import KattebQueueManager
+
+logger = logging.getLogger("katteb.wordpress")
 
 # BBM WordPress root resolution
 BBM_WP_ROOT = Path("/Users/klkro/Projects/bbm-wordpress")
@@ -83,6 +94,149 @@ COUNTRY_ISO_MAP = {
     "slovakia": "sk",
 }
 
+# Canonical Fleet site profiles across all flagship digital publishing properties
+FLEET_SITE_PROFILES: dict[str, dict[str, Any]] = {
+    "destinations-ai": {
+        "name": "Destinations AI",
+        "domain": "destinations.ai",
+        "default_post_type": "destinations",
+        "wp_cli_alias": "@destinations-ai.prod",
+    },
+    "viatravelers": {
+        "name": "ViaTravelers",
+        "domain": "viatravelers.com",
+        "default_post_type": "post",
+        "wp_cli_alias": "@viatravelers.prod",
+    },
+    "santorinisecrets": {
+        "name": "Santorini Secrets",
+        "domain": "santorinisecrets.com",
+        "default_post_type": "post",
+        "wp_cli_alias": "@santorinisecrets.prod",
+    },
+    "amsterdamlocalgems": {
+        "name": "Amsterdam Local Gems",
+        "domain": "amsterdamlocalgems.com",
+        "default_post_type": "post",
+        "wp_cli_alias": "@amsterdamlocalgems.prod",
+    },
+    "parkervillas": {
+        "name": "Parker Villas",
+        "domain": "parkervillas.com",
+        "default_post_type": "post",
+        "wp_cli_alias": "@parkervillas.prod",
+    },
+    "realjourneytravels": {
+        "name": "Real Journey Travels",
+        "domain": "realjourneytravels.com",
+        "default_post_type": "post",
+        "wp_cli_alias": "@realjourneytravels.prod",
+    },
+    "everythingaboutgermany": {
+        "name": "Everything About Germany",
+        "domain": "everythingaboutgermany.com",
+        "default_post_type": "post",
+        "wp_cli_alias": "@everythingaboutgermany.prod",
+        "aliases": ["everythingaboutgermany.de", "everythingaboutgermany.com"],
+    },
+    "gearbuddha": {
+        "name": "Gear Buddha",
+        "domain": "gearbuddha.com",
+        "default_post_type": "gear",
+        "wp_cli_alias": "@gearbuddha.prod",
+    },
+    "theimpactinvestor": {
+        "name": "The Impact Investor",
+        "domain": "theimpactinvestor.com",
+        "default_post_type": "post",
+        "wp_cli_alias": "@theimpactinvestor.prod",
+    },
+    "blackbearmedia": {
+        "name": "Black Bear Media",
+        "domain": "blackbearmedia.io",
+        "default_post_type": "post",
+        "wp_cli_alias": "@blackbearmedia.prod",
+    },
+    "traveleering": {
+        "name": "Traveleering",
+        "domain": "traveleering.com",
+        "default_post_type": "post",
+        "wp_cli_alias": "@traveleering.prod",
+    },
+    "workfromhomereviews": {
+        "name": "Work From Home Reviews",
+        "domain": "workfromhomereviews.net",
+        "default_post_type": "post",
+        "wp_cli_alias": "@workfromhomereviews.prod",
+    },
+    "reluctantfrugalist": {
+        "name": "Reluctant Frugalist",
+        "domain": "reluctantfrugalist.com",
+        "default_post_type": "post",
+        "wp_cli_alias": "@reluctantfrugalist.prod",
+    },
+    "paristopten": {
+        "name": "Paris Top Ten",
+        "domain": "paristopten.com",
+        "default_post_type": "post",
+        "wp_cli_alias": "@paristopten.prod",
+    },
+    "lovinglifeinspain": {
+        "name": "Loving Life in Spain",
+        "domain": "lovinglifeinspain.com",
+        "default_post_type": "post",
+        "wp_cli_alias": "@lovinglifeinspain.prod",
+    },
+}
+
+
+def validate_site_alias(site: str) -> str:
+    """Validate site alias to ensure it is alphanumeric with dashes/dots, preventing shell injection."""
+    if not site or not isinstance(site, str):
+        raise ValueError("Site alias must be a non-empty string.")
+    cleaned = site.strip()
+    check_str = cleaned[1:] if cleaned.startswith("@") else cleaned
+
+    if not re.match(r"^[a-zA-Z0-9_.-]+$", check_str):
+        raise ValueError(f"Invalid site alias '{site}': contains forbidden characters.")
+    return cleaned
+
+
+def resolve_fleet_profile(site_or_alias: str) -> dict[str, Any] | None:
+    """Resolve a site name, domain, or WP-CLI alias to its canonical fleet profile."""
+    if not site_or_alias or not isinstance(site_or_alias, str):
+        return None
+    clean = site_or_alias.strip().lower()
+    if clean.startswith("@"):
+        clean = clean[1:]
+    if clean.endswith(".prod"):
+        clean = clean[:-5]
+
+    if clean in FLEET_SITE_PROFILES:
+        return FLEET_SITE_PROFILES[clean]
+
+    for profile in FLEET_SITE_PROFILES.values():
+        if profile.get("domain", "").lower() == clean:
+            return profile
+        for alias in profile.get("aliases", []):
+            if alias.lower() == clean:
+                return profile
+
+    return None
+
+
+def validate_and_authorize_site_alias(site: str, allow_custom: bool = False) -> str:
+    """Validate alias syntax and authorize against known fleet site profiles."""
+    validated = validate_site_alias(site)
+    profile = resolve_fleet_profile(validated)
+    if profile:
+        return profile.get("wp_cli_alias", f"@{validated}.prod")
+    if allow_custom:
+        return f"@{validated}.prod" if not validated.startswith("@") else validated
+    raise PermissionError(
+        f"Site '{site}' is not an authorized fleet profile. Choose from: {sorted(list(FLEET_SITE_PROFILES.keys()))}"
+    )
+
 
 def resolve_country_code(country_name: str | None) -> str:
     """Map country string to ISO alpha-2 code, defaulting to 'us'."""
@@ -92,12 +246,16 @@ def resolve_country_code(country_name: str | None) -> str:
     return COUNTRY_ISO_MAP.get(clean, "us")
 
 
-def run_wp_cli(alias: str, command: str, timeout: int = 45) -> str:
-    """Execute a WP-CLI command via wp-global."""
-    import shlex
+def run_wp_cli(alias: str, command: str | list[str], timeout: int = 45, allow_custom: bool = False) -> str:
+    """Execute a WP-CLI command via wp-global safely using structured argv list."""
+    target_alias = validate_and_authorize_site_alias(alias, allow_custom=allow_custom)
 
-    target_alias = f"@{alias}.prod" if not alias.startswith("@") else alias
-    cmd_args = ["bash", str(WP_GLOBAL_SCRIPT), target_alias, *shlex.split(command)]
+    if isinstance(command, list):
+        cli_subcmd = command
+    else:
+        cli_subcmd = shlex.split(command)
+
+    cmd_args = ["bash", str(WP_GLOBAL_SCRIPT), target_alias, *cli_subcmd]
 
     res = subprocess.run(
         cmd_args,
@@ -112,25 +270,326 @@ def run_wp_cli(alias: str, command: str, timeout: int = 45) -> str:
     return res.stdout.strip()
 
 
-def run_wp_eval(alias: str, php_code: str, timeout: int = 60) -> Any:
+def run_wp_eval(alias: str, php_code: str, timeout: int = 60, allow_custom: bool = False) -> Any:
     """Execute PHP code on remote site via base64 wrapper and return parsed JSON result."""
-    import base64
-
     b64_code = base64.b64encode(php_code.encode("utf-8")).decode("utf-8")
     runner_code = f"eval(base64_decode('{b64_code}'));"
-    out = run_wp_cli(alias, f'eval "{runner_code}"', timeout=timeout)
+    out = run_wp_cli(alias, ["eval", runner_code], timeout=timeout, allow_custom=allow_custom)
     try:
         return json.loads(out)
     except Exception:
         return out
 
 
+
+def is_error_payload(text: str) -> tuple[bool, str]:
+    """Check whether text represents a provider error response (JSON or HTML error page)."""
+    if not text or not text.strip():
+        return True, "Empty content payload received."
+
+    stripped = text.strip()
+
+    # 1. JSON error payload
+    if (stripped.startswith("{") and stripped.endswith("}")) or (stripped.startswith("[") and stripped.endswith("]")):
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, dict):
+                if parsed.get("status") == "error" or parsed.get("success") is False or "error" in parsed:
+                    err_detail = parsed.get("error") or parsed.get("message") or str(parsed)
+                    return True, f"JSON error payload from provider: {err_detail}"
+        except Exception:
+            pass
+
+    # 2. IP Authorization error signatures
+    if "Error (401)" in text or "Your IP is not authorized" in text or "ip_auth_required" in text:
+        return True, (
+            "Katteb IP authorization error: 'Your IP is not authorized to make this request.' "
+            "Add public IP at https://app.katteb.com/api_access"
+        )
+
+    # 3. Server 5xx / HTML error pages
+    lower = text.lower()
+    if any(sig in lower for sig in ["<title>500", "<title>502", "<title>503", "<title>504", "<title>error"]):
+        return True, "HTML server error page received from provider."
+
+    if any(sig in lower for sig in ["fatal error:", "parse error:", "uncaught exception", "502 bad gateway"]):
+        return True, f"PHP/Server fatal error detected in payload: {text[:200]}"
+
+    # 4. Short error payload (< 400 chars with 'Error' or 'failed')
+    if len(stripped) < 400 and ("error (" in lower or "fatal error" in lower or ("error" in lower and "failed" in lower)):
+        return True, f"Short error payload detected: {stripped}"
+
+    return False, ""
+
+
+def sanitize_meta_description(meta_desc: str, max_chars: int = 160) -> str:
+    """Sanitize meta description by removing CSS styles, scripts, HTML tags, and truncating cleanly."""
+    if not meta_desc:
+        return ""
+
+    soup = BeautifulSoup(meta_desc, "html.parser")
+    for elem in soup(["style", "script", "template"]):
+        elem.decompose()
+
+    text = soup.get_text(separator=" ", strip=True)
+    text = html.unescape(text)
+
+    # Remove any stray CSS selector rules (e.g. .class { ... } or #id { ... })
+    text = re.sub(r"[.#a-zA-Z0-9_-]+\s*\{[^}]*\}", "", text)
+    # Remove bracketed CSS remnant tags or style fragments
+    text = re.sub(r"\[/?style[^\]]*\]", "", text, flags=re.IGNORECASE)
+    # Remove CSS property remnants
+    text = re.sub(r"[a-zA-Z-]+:\s*[^;]+;", "", text)
+    # Collapse multiple whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+
+    if len(text) > max_chars:
+        truncated = text[:max_chars].rsplit(" ", 1)[0]
+        return truncated if truncated else text[:max_chars]
+    return text
+
+
+class ContentQualityError(RuntimeError):
+    """Raised when generated AI content fails editorial quality gates or contains placeholder tokens."""
+
+    def __init__(self, message: str, errors: list[str] | None = None):
+        super().__init__(message)
+        self.errors = errors or []
+
+
+def validate_generated_content(html_content: str, target_word_count: int = 1500) -> list[str]:
+    """Validate that generated HTML content satisfies semantic heading structure, word count, and has no placeholder leakage."""
+    errors: list[str] = []
+    if not html_content or not html_content.strip():
+        return ["Content is completely empty."]
+
+    # Check for error payload first
+    is_err, err_msg = is_error_payload(html_content)
+    if is_err:
+        return [f"Content is an error response, not article content: {err_msg}"]
+
+    # Parse with BeautifulSoup
+    soup = BeautifulSoup(html_content, "html.parser")
+
+    # Decompose hidden or non-content tags before text & heading checks
+    for elem in soup(["script", "style", "template", "noscript", "svg"]):
+        elem.decompose()
+
+    # Extract visible text and compute actual word count
+    clean_text = soup.get_text(separator=" ", strip=True)
+    words = clean_text.split()
+    actual_wc = len(words)
+
+    # Word count validation against target
+    if actual_wc < 50:
+        errors.append(f"Content is excessively short: found only {actual_wc} visible words (minimum 50 required).")
+    elif target_word_count >= 500 and actual_wc < int(target_word_count * 0.4):
+        errors.append(
+            f"Content length failure: found {actual_wc} visible words, falling below required floor for target {target_word_count}."
+        )
+
+    # Semantic Heading check
+    headings_h2 = [
+        h.get_text(strip=True)
+        for h in soup.find_all("h2")
+        if h.parent and h.parent.name not in ("pre", "code", "template") and h.get_text(strip=True)
+    ]
+    headings_h3 = [
+        h.get_text(strip=True)
+        for h in soup.find_all("h3")
+        if h.parent and h.parent.name not in ("pre", "code", "template") and h.get_text(strip=True)
+    ]
+
+    if target_word_count >= 1000:
+        if len(headings_h2) < 2:
+            errors.append(
+                f"Content lacks sufficient semantic H2 structure: found {len(headings_h2)} valid non-empty <h2> tags (minimum 2 required)."
+            )
+        if len(headings_h3) < 1:
+            errors.append(
+                f"Content lacks semantic H3 subsections: found {len(headings_h3)} valid non-empty <h3> tags (minimum 1 required)."
+            )
+
+    # Broadened placeholder check
+    bracket_placeholders = re.findall(
+        r"\[(City|Country|Name|Insert|Destination|State|Region|URL|Link|Date|Phone|Company|Brand|TODO|TBD|X)\]",
+        html_content,
+        re.IGNORECASE,
+    )
+    if bracket_placeholders:
+        unique_matches = sorted(list(set(bracket_placeholders)))
+        errors.append(f"Detected unreplaced placeholder token(s): {', '.join(unique_matches)}")
+
+    if re.search(r"\[insert\s+[^\]]*\]", html_content, re.IGNORECASE):
+        errors.append("Detected unreplaced '[insert ...]' placeholder tag in content.")
+
+    if re.search(r"\{\{[a-zA-Z0-9_.\s-]+\}\}", html_content):
+        errors.append("Detected unreplaced mustache/handlebars variable token '{{...}}'.")
+
+    if re.search(r"%(CITY|COUNTRY|NAME|STATE|URL|LINK|DATE|BRAND)%", html_content, re.IGNORECASE):
+        errors.append("Detected unreplaced percent-delimited placeholder token '%...%'.")
+
+    if re.search(r"<<[a-zA-Z0-9_.\s-]+>>", html_content):
+        errors.append("Detected unreplaced angle-bracket placeholder token '<<...>>'.")
+
+    if re.search(r"\bINSERT\s+[A-Z\s_]+\s+HERE\b", html_content, re.IGNORECASE):
+        errors.append("Detected unreplaced 'INSERT ... HERE' editorial instruction tag.")
+
+    if re.search(r"https?://(?:www\.)?example\.com", html_content, re.IGNORECASE):
+        errors.append("Detected unreplaced placeholder URL pointing to 'example.com'.")
+
+    ai_phrases = [
+        "as an ai language model",
+        "i cannot provide",
+        "lorem ipsum",
+        "here is your generated article",
+        "here is an expanded version",
+    ]
+    lower_html = html_content.lower()
+    for phrase in ai_phrases:
+        if phrase in lower_html:
+            errors.append(f"Detected prohibited AI boilerplate / placeholder phrase: '{phrase}'.")
+
+    return errors
+
+
+def generate_expansion_receipt(
+    site: str,
+    results: list[dict[str, Any]],
+    output_dir: str = "receipts",
+    safe_root: Path | str | None = None,
+) -> str:
+    """Generate and write Markdown and JSON audit receipts for a batch expansion run."""
+    allowed_root = Path(safe_root).resolve() if safe_root else Path.cwd().resolve()
+    target_dir = (allowed_root / output_dir).resolve() if not Path(output_dir).is_absolute() else Path(output_dir).resolve()
+
+    default_app_root = (Path.home() / ".katteb" / "receipts").resolve()
+    is_safe = False
+    for safe_base in [allowed_root, default_app_root]:
+        try:
+            target_dir.relative_to(safe_base)
+            is_safe = True
+            break
+        except ValueError:
+            continue
+
+    if not is_safe:
+        target_dir = allowed_root / "receipts"
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    base_filename = f"expand-receipt-{timestamp}"
+    md_file_path = target_dir / f"{base_filename}.md"
+    json_file_path = target_dir / f"{base_filename}.json"
+
+    results_str = json.dumps(results, sort_keys=True, default=str)
+    audit_hash = hashlib.sha256(results_str.encode("utf-8")).hexdigest()[:16]
+
+    def escape_cell(val: Any) -> str:
+        s = str(val or "").replace("|", "\\|").replace("\n", " ").strip()
+        return s if s else "N/A"
+
+    lines = [
+        f"# Katteb Content Expansion Receipt — {site}",
+        "",
+        f"- **Site**: `{site}`",
+        f"- **Timestamp (UTC)**: {datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}",
+        f"- **Audit Hash**: `{audit_hash}`",
+        f"- **Total Posts Processed**: {len(results)}",
+        "",
+        "## Summary of Processed Posts",
+        "",
+        "| Post ID | Title | Previous Words | New Words | Delta | Status | RankMath SEO |",
+        "|---------|-------|----------------|-----------|-------|--------|--------------|",
+    ]
+
+    for r in results:
+        pid = escape_cell(r.get("post_id"))
+        title = escape_cell(r.get("title"))
+        prev_w = r.get("previous_word_count", 0)
+        new_w = r.get("new_word_count", 0)
+        delta = f"+{new_w - prev_w}" if new_w >= prev_w else f"{new_w - prev_w}"
+        status_text = "✅ Updated" if r.get("success") else f"❌ Failed ({escape_cell(r.get('error', 'Unknown'))})"
+        has_seo = "Yes" if r.get("meta_title") else "No"
+        lines.append(f"| {pid} | {title} | {prev_w} | {new_w} | {delta} | {status_text} | {has_seo} |")
+
+    lines.append("")
+    lines.append("---")
+    lines.append("*Receipt auto-generated by Katteb WordPressFleetManager*")
+    lines.append("")
+
+    md_file_path.write_text("\n".join(lines), encoding="utf-8")
+
+    json_payload = {
+        "site": site,
+        "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "audit_hash": audit_hash,
+        "total_posts": len(results),
+        "results": results,
+    }
+    json_file_path.write_text(json.dumps(json_payload, indent=2, default=str), encoding="utf-8")
+
+    return str(md_file_path)
+
+
 class WordPressFleetManager:
     """Manages post auditing and AI content updates for WordPress fleet sites."""
 
-    def __init__(self, client: KattebClient):
-        self.client = client
-        self.queue = KattebQueueManager(client)
+    def __init__(self, client: KattebClient | None = None):
+        self.client = client or KattebClient()
+        self.queue = KattebQueueManager(self.client)
+
+    def check_site_connectivity(self, site: str, allow_custom: bool = False) -> PreflightResult:
+        """Check if WP-CLI can connect to the target fleet site and return typed PreflightResult."""
+        try:
+            target_alias = validate_and_authorize_site_alias(site, allow_custom=allow_custom)
+        except PermissionError as e:
+            return PreflightResult(
+                success=False,
+                site=site,
+                category="unauthorized_alias",
+                message=str(e),
+                exit_code=1,
+            )
+        except ValueError as e:
+            return PreflightResult(
+                success=False,
+                site=site,
+                category="invalid_alias",
+                message=str(e),
+                exit_code=1,
+            )
+
+        try:
+            out = run_wp_cli(site, ["core", "version"], timeout=15, allow_custom=allow_custom)
+            return PreflightResult(
+                success=True,
+                site=site,
+                category="ok",
+                message=f"Connected to WordPress core {out}",
+                version=out,
+                exit_code=0,
+            )
+        except subprocess.TimeoutExpired:
+            return PreflightResult(
+                success=False,
+                site=site,
+                category="timeout",
+                message=f"Connection to site '{site}' timed out after 15s.",
+                exit_code=124,
+            )
+        except Exception as e:
+            msg = str(e)
+            category = "ssh_error" if "ssh" in msg.lower() or "permission denied" in msg.lower() else "wp_error"
+            return PreflightResult(
+                success=False,
+                site=site,
+                category=category,
+                message=msg,
+                exit_code=1,
+            )
+
 
     def audit_low_word_posts(
         self,
@@ -244,9 +703,16 @@ class WordPressFleetManager:
         brand_id: int | None = None,
         guidelines: str | None = None,
         dry_run: bool = False,
+        allow_custom_alias: bool = False,
         on_status: Any | None = None,
     ) -> dict[str, Any]:
         """Generate expanded content with Katteb and update WordPress post."""
+        # 1. Preflight site connectivity check BEFORE Katteb generation
+        preflight = self.check_site_connectivity(site, allow_custom=allow_custom_alias)
+        if not preflight.success:
+            raise RuntimeError(f"Preflight check failed for site '{site}': {preflight.message} ({preflight.category})")
+
+        # 2. Fetch existing post details
         post = self.get_post_details(site, post_id)
         if "error" in post:
             raise ValueError(f"Failed to fetch post {post_id}: {post['error']}")
@@ -282,23 +748,30 @@ class WordPressFleetManager:
         target_country_code = resolve_country_code(country)
         final_enhancements = enhancements or ["tldr", "key_takeaways", "faq"]
 
-        if on_status:
-            on_status(f"Generating article for post #{post_id} ('{topic}') via Katteb API...")
-
+        # 3. True Dry-Run: Return simulation result without Katteb API calls or WordPress mutations
         if dry_run:
             return {
+                "success": True,
                 "dry_run": True,
                 "post_id": post_id,
                 "title": title,
                 "topic": topic,
                 "country": target_country_code,
                 "word_count": word_count,
+                "previous_word_count": post["word_count"],
+                "current_word_count": post["word_count"],
                 "enhancements": final_enhancements,
                 "guidelines": final_guidelines,
-                "current_word_count": post["word_count"],
+                "simulated": True,
             }
 
-        # Submit and poll Katteb API
+        if on_status:
+            on_status(f"Generating article for post #{post_id} ('{topic}') via Katteb API...")
+
+        # 4. Generate via Katteb API
+        import time
+
+        start_time = time.time()
         article_res: ArticleGetResponse = self.queue.generate_and_wait(
             topic=topic,
             language="English",
@@ -315,26 +788,27 @@ class WordPressFleetManager:
         meta_title = article_res.meta_title or title
         meta_desc = article_res.meta_description or ""
 
-        # Content Quality & Authorization Guard
-        if "Error (401)" in new_html or "Your IP is not authorized" in new_html:
-            raise RuntimeError(
-                "Katteb returned an IP authorization error: 'Your IP is not authorized to make this request.'\n"
-                "Please add your current public IP to the allowed IP list in your Katteb account dashboard at https://app.katteb.com/api_access"
+        # 5. Check provider error payloads
+        is_err, err_msg = is_error_payload(new_html)
+        if is_err:
+            raise RuntimeError(f"Katteb generation returned an error payload: {err_msg}")
+
+        # 6. Quality Gate: validate heading hierarchy, word count, and placeholder tokens
+        val_errors = validate_generated_content(new_html, target_word_count=word_count)
+        if val_errors:
+            err_msg = "; ".join(val_errors)
+            raise ContentQualityError(
+                f"Generated content for post #{post_id} failed quality gates: {err_msg}",
+                errors=val_errors,
             )
 
-        if "Error (" in new_html and len(new_html) < 400:
-            raise RuntimeError(f"Katteb generation returned an error payload: {new_html}")
-
-        # Clean meta_description from stray css or tags
-        import re
-
-        meta_desc = re.sub(r"<style[\s\S]*?</style>", "", meta_desc)
-        meta_desc = re.sub(r"\.[a-zA-Z0-9_-]+\s*\{[^}]*\}", "", meta_desc).strip()
+        # 7. Clean meta_description from stray css or tags
+        meta_desc = sanitize_meta_description(meta_desc)
 
         if on_status:
             on_status(f"Article generated ({article_res.word_count} words). Updating WordPress post #{post_id}...")
 
-        # Update WordPress post via WP-CLI eval
+        # 8. Update WordPress post via WP-CLI eval
         update_payload = {
             "post_id": post_id,
             "post_type": pt,
@@ -345,9 +819,6 @@ class WordPressFleetManager:
         }
 
         update_json_str = json.dumps(update_payload)
-        # Base64 encode the payload to prevent escaping issues in bash/PHP
-        import base64
-
         b64_payload = base64.b64encode(update_json_str.encode("utf-8")).decode("utf-8")
 
         php_update = f"""
@@ -393,9 +864,13 @@ class WordPressFleetManager:
         ));
         """
 
-        wp_res = run_wp_eval(site, php_update)
+        wp_res = run_wp_eval(site, php_update, allow_custom=allow_custom_alias)
+        duration = round(time.time() - start_time, 2)
 
-        return {
+        if isinstance(wp_res, dict) and wp_res.get("error"):
+            raise RuntimeError(f"WordPress post update failed: {wp_res['error']}")
+
+        res_dict = {
             "success": True,
             "post_id": post_id,
             "title": title,
@@ -404,4 +879,28 @@ class WordPressFleetManager:
             "job_id": article_res.job_id,
             "meta_title": meta_title,
             "meta_description": meta_desc,
+            "duration_seconds": duration,
         }
+
+        try:
+            from katteb.telemetry import log_telemetry_event
+
+            log_telemetry_event(
+                event_type="post_expansion",
+                data={
+                    "site": site,
+                    "post_id": post_id,
+                    "title": title,
+                    "previous_word_count": res_dict["previous_word_count"],
+                    "new_word_count": res_dict["new_word_count"],
+                    "words_generated": max(0, (res_dict["new_word_count"] or 0) - (res_dict["previous_word_count"] or 0)),
+                    "estimated_credits": 1,
+                    "duration_seconds": duration,
+                    "success": True,
+                },
+            )
+        except Exception as e:
+            logger.warning("Failed to record post expansion telemetry: %s", e)
+
+        return res_dict
+
