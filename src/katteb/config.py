@@ -31,9 +31,7 @@ class KattebConfig:
         self._api_key = api_key or self._resolve_api_key()
         self._telemetry_file = Path(telemetry_file) if telemetry_file else self._resolve_telemetry_file()
         self._credit_alert_threshold = (
-            credit_alert_threshold
-            if credit_alert_threshold is not None
-            else self._resolve_credit_alert_threshold()
+            credit_alert_threshold if credit_alert_threshold is not None else self._resolve_credit_alert_threshold()
         )
 
     def _resolve_telemetry_file(self) -> Path:

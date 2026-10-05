@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from katteb.client import KattebClient
-from katteb.config import KattebConfig, get_config
+from katteb.config import get_config
 
 
 def resolve_log_path(log_path: Path | str | None = None) -> Path:
@@ -65,7 +65,7 @@ def get_telemetry_events(
 
     events_deque: deque[dict[str, Any]] = deque(maxlen=limit)
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -107,7 +107,7 @@ def get_telemetry_summary(log_path: Path | str | None = None) -> dict[str, Any]:
     pe = summary["post_expansions"]
 
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -174,11 +174,7 @@ def check_credit_threshold(
     - 'WARNING' if available credits <= threshold and > 0
     - 'CRITICAL' if available credits <= 0
     """
-    effective_threshold = (
-        threshold
-        if threshold is not None
-        else client.config.credit_alert_threshold
-    )
+    effective_threshold = threshold if threshold is not None else client.config.credit_alert_threshold
 
     credits_res = client.get_credits()
     avail = credits_res.credits if credits_res.credits is not None else 0
@@ -186,11 +182,13 @@ def check_credit_threshold(
     if avail <= 0:
         status = "CRITICAL"
         depleted = True
-        msg = f"CRITICAL: Katteb account has 0 credits remaining! Refill required immediately."
+        msg = "CRITICAL: Katteb account has 0 credits remaining! Refill required immediately."
     elif avail <= effective_threshold:
         status = "WARNING"
         depleted = True
-        msg = f"WARNING: Katteb credit balance ({avail}) has fallen to or below alert threshold ({effective_threshold})."
+        msg = (
+            f"WARNING: Katteb credit balance ({avail}) has fallen to or below alert threshold ({effective_threshold})."
+        )
     else:
         status = "OK"
         depleted = False

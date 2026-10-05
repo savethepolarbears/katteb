@@ -1,6 +1,8 @@
 # Katteb API v2 — Python SDK Reference
 
-The `katteb` Python package provides programmatic, type-safe access to all Katteb API v2 endpoints.
+The `katteb` Python package provides programmatic, type-safe access to all Katteb API v2 endpoints, automated concurrency queues, WordPress fleet expansion managers, pipeline execution handlers, and local telemetry logging.
+
+---
 
 ## Installation
 
@@ -8,127 +10,137 @@ The `katteb` Python package provides programmatic, type-safe access to all Katte
 pip install katteb
 ```
 
-## Quick Start
+---
+
+## Architecture Overview
+
+- **`KattebClient`**: Core HTTP client handling authentication, rate-limiting headers, automatic retries with exponential backoff and jitter, and Pydantic response parsing.
+- **`KattebQueueManager`**: Handles Katteb's 1-active-heavy-job concurrency constraint. Automatically polls in-flight jobs and retries queued requests upon encountering HTTP 429 lockouts.
+- **`WordPressFleetManager`**: Integrates with WP-CLI (`wp-global`) to audit thin posts (<400 words), extract structured destination/post metadata, expand content via Katteb, and update live WordPress databases.
+- **`KattebPipelineRunner`**: Orchestrates end-to-end event execution from webhook payloads, validates schemas, logs structured telemetry, and generates audit receipts.
+- **`telemetry`**: Local structured JSON Lines event logging in `~/.katteb/telemetry.jsonl` with aggregation and inspection utilities.
+
+---
+
+## Core Client: `KattebClient`
 
 ```python
 from katteb import KattebClient
 
-client = KattebClient()  # Automatically reads KATTEB_API_KEY from environment or ~/.katteb/config.json
-
-# Check credits
-credits = client.get_credits()
-print(f"Available credits: {credits.credits}")
+client = KattebClient()  # Resolves KATTEB_API_KEY from env or ~/.katteb/config.json
 ```
 
----
+### Account & Configuration
+- **`get_credits() -> AccountCreditsResponse`**: Returns account credit balances, brand allocations, and daily heavy/read API usage counts.
+- **`get_limits() -> AccountLimitsResponse`**: Returns rate limit sliding window details.
+- **`list_styles() -> List[WritingStyle]`**: Returns all custom writing styles.
+- **`list_brands() -> List[Brand]`**: Returns all brand workspaces.
 
-## API Endpoints & Methods
+### Article Generation & Lifecycle
+- **`generate_article(topic, language="English", country="us", word_count=1500, brand_id=None, writing_style_id=None, guidelines=None, enhancements=None) -> ArticleGenerateResponse`**: Submits an article generation job.
+- **`get_article(job_id: int) -> ArticleGetResponse`**: Fetches generated article content, metadata, and status (`pending`, `processing`, `completed`, `failed`).
+- **`list_articles(page=1, limit=20, status=None) -> ArticleListResponse`**: Lists historical articles with pagination.
+- **`cancel_article(job_id: int) -> Dict[str, Any]`**: Cancels a pending job and refunds consumed credits.
 
-### 1. `get_credits()`
-Returns current credit balance, total credits, pooled/available credits, brand allocations, and daily heavy/read API usage counts.
+### SEO & Competitor Analysis
+- **`analyze_seo(type: str, value: str, keyword: str | None = None, brand_id: int | None = None) -> SEOAnalyzeResponse`**: Submits a URL or text content for SEO auditing.
+- **`get_seo(job_id: int) -> SEOGetResponse`**: Retrieves SEO analysis results, scores, and actionable recommendations.
 
-- **Method:** `client.get_credits()`
-- **Returns:** `AccountCreditsResponse` (`credits`, `credits_available`, `credits_pool`, `credits_total`, `brand_allocated`, `brands`, `plan_type`, `api_usage_today`)
+### AI Detection & Humanizer
+- **`detect_ai(text: str, language: str = "English") -> HumanizerDetectResponse`**: Calculates the probability (0–100%) that text was AI-generated (`likely_human`, `mixed`, `likely_ai`).
+- **`rewrite_humanizer(text: str, strength: str = "Moderate", language: str = "English", add_imperfections: bool = False, brand_id: int | None = None) -> HumanizerRewriteResponse`**: Rewrites text to bypass AI detection and sound natural.
 
-### 2. `get_limits()`
-Returns rate limit sliding window details.
-
-- **Method:** `client.get_limits()`
-- **Returns:** `AccountLimitsResponse`
-
-### 3. `generate_article(...)`
-Submits an article generation job for background processing.
-
-- **Parameters:**
-  - `topic` (str, required): Article topic (max 500 chars).
-  - `language` (str, default: `"English"`): Target language.
-  - `country` (str, default: `"us"`): ISO 3166-1 alpha-2 country code for geo-targeted search results.
-  - `word_count` (int, default: `1500`): 500–5000 words.
-  - `brand_id` (int, optional): Brand workspace ID from `list_brands()`.
-  - `writing_style_id` (int, optional): Writing style ID from `list_styles()`.
-  - `guidelines` (str, optional): Custom instructions (max 2000 chars).
-  - `enhancements` (List[str], optional): List of add-ons: `"tldr"`, `"key_takeaways"`, `"faq"`, `"featured_image"`, `"internal_links"`, `"video_embed"`, `"quotes"`, `"patent"`.
-- **Returns:** `ArticleGenerateResponse` (`job_id`, `credits_charged`, `estimated_time`, `status`, `poll_url`)
-
-### 4. `get_article(job_id)`
-Polls the status of an article or fetches its generated content.
-
-- **Parameters:** `job_id` (int, required)
-- **Returns:** `ArticleGetResponse` (`job_id`, `status`, `progress`, `content_html`, `featured_image`, `meta_title`, `meta_description`, `word_count`)
-
-### 5. `list_articles(page=1, limit=20, status=None)`
-Lists previously generated articles with pagination.
-
-- **Parameters:**
-  - `page` (int, default: `1`)
-  - `limit` (int, default: `20`, max 50)
-  - `status` (str, optional): Filter by `"pending"`, `"processing"`, `"completed"`, `"failed"`.
-- **Returns:** `ArticleListResponse` (`articles`, `count`, `page`, `limit`)
-
-### 6. `cancel_article(job_id)`
-Cancels a pending or queued article and refunds consumed credits.
-
-- **Parameters:** `job_id` (int, required)
-- **Returns:** `Dict[str, Any]`
-
-### 7. `analyze_seo(type, value, keyword=None, brand_id=None)`
-Submits a live URL or raw HTML text for AI-powered SEO and competitor analysis.
-
-- **Parameters:**
-  - `type` (str, required): `"url"` or `"text"`.
-  - `value` (str, required): The URL or text content.
-  - `keyword` (str, optional): Target keyword.
-- **Returns:** `SEOAnalyzeResponse` (`job_id`, `keyword`, `credits_charged`, `status`, `poll_url`)
-
-### 8. `get_seo(job_id)`
-Fetches the results and recommendations of an SEO analysis job.
-
-- **Parameters:** `job_id` (int, required)
-- **Returns:** `SEOGetResponse` (`job_id`, `status`, `keyword`, `score`, `recommendations`)
-
-### 9. `detect_ai(text, language="English")`
-Analyzes text to determine the probability that it was AI-generated (0–100 score).
-
-- **Parameters:**
-  - `text` (str, required): 50–50,000 characters.
-  - `language` (str, default: `"English"`).
-- **Returns:** `HumanizerDetectResponse` (`ai_probability`, `verdict`, `credits_charged`, `word_count`)
-  - `verdict`: `"likely_human"` (<30%), `"mixed"` (30–69%), `"likely_ai"` (≥70%).
-
-### 10. `rewrite_humanizer(text, strength="Moderate", language="English", add_imperfections=False, brand_id=None)`
-Rewrites AI-generated text to sound natural and pass AI detection while preserving meaning.
-
-- **Parameters:**
-  - `text` (str, required): 20–50,000 characters.
-  - `strength` (str, default: `"Moderate"`): `"Subtle"`, `"Moderate"`, or `"Strong"`.
-  - `add_imperfections` (bool, default: `False`): Subtle human-like imperfections.
-- **Returns:** `HumanizerRewriteResponse` (`rewritten_text`, `strength`, `credits_charged`, `original_length`, `rewritten_length`)
-
-### 11. `verify_fact(text, brand_id=None)`
-Verifies a factual statement against live web search results.
-
-- **Parameters:** `text` (str, required): 3–300 words.
-- **Returns:** `FactCheckResponse` (`verdict` [`"TRUE"`, `"FALSE"`, `"INCONCLUSIVE"`], `is_fact`, `explanation`, `search_query`, `references`, `credits_charged`)
+### Fact Checking
+- **`verify_fact(text: str, brand_id: int | None = None) -> FactCheckResponse`**: Fact-checks claims against real-time web searches (`TRUE`, `FALSE`, `INCONCLUSIVE`).
 
 ---
 
-## Concurrency Queue Manager
+## Concurrency Queue: `KattebQueueManager`
 
-Katteb restricts concurrent heavy operations (1 active article generation at a time per account). `KattebQueueManager` automatically handles HTTP 429 lockouts by polling active jobs until completion and retrying submissions.
+Katteb enforces an account-wide limit of one concurrent heavy generation job. `KattebQueueManager` abstracts polling, retry loops, and error recovery:
 
 ```python
 from katteb import KattebClient
 from katteb.queue import KattebQueueManager
 
 client = KattebClient()
-queue = KattebQueueManager(client)
+queue = KattebQueueManager(client, poll_interval=10, max_wait=600)
 
-# Automatically handles concurrency locks and polls until ready
 article = queue.generate_and_wait(
-    topic="Complete Guide to Rome 2026",
+    topic="Complete Guide to Tokyo 2026",
     word_count=2000,
-    country="it",
+    country="jp",
     enhancements=["tldr", "faq", "key_takeaways"],
     on_status=lambda msg: print(f"[Status] {msg}")
 )
+print(f"Generated {article.word_count} words: {article.meta_title}")
+```
+
+---
+
+## WordPress Fleet Automation: `WordPressFleetManager`
+
+Automates audit and expansion across WordPress sites configured in WP-CLI.
+
+```python
+from katteb import KattebClient
+from katteb.wordpress import WordPressFleetManager
+
+client = KattebClient()
+manager = WordPressFleetManager(client=client)
+
+# 1. Audit low-word posts
+thin_posts = manager.get_low_word_count_posts(
+    site="destinations-ai",
+    threshold=400,
+    post_types=["destinations", "post"],
+    limit=10
+)
+
+# 2. Expand a single post
+result = manager.expand_post(
+    site="destinations-ai",
+    post_id=97748,
+    target_words=1800,
+    dry_run=False
+)
+print(f"Status: {result.status} | Added: {result.words_added} words")
+```
+
+---
+
+## Event Pipeline: `KattebPipelineRunner`
+
+Executes incoming event payloads from webhooks, queues, or scripts:
+
+```python
+from katteb.pipeline import KattebPipelineRunner
+
+runner = KattebPipelineRunner()
+payload = {
+    "site": "destinations-ai",
+    "post_id": 97748,
+    "target_words": 1800,
+    "dry_run": False
+}
+
+result = runner.run_expansion_event(payload)
+print(f"Result: {result['status']}")
+```
+
+---
+
+## Telemetry: `katteb.telemetry`
+
+Record and analyze operational telemetry:
+
+```python
+from katteb.telemetry import get_telemetry_summary, get_telemetry_events
+
+# Get aggregated metrics
+summary = get_telemetry_summary()
+print(f"Total expansions: {summary['post_expansions']['total_runs']}")
+
+# Inspect recent events
+recent_events = get_telemetry_events(limit=5)
 ```

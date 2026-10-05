@@ -6,6 +6,7 @@ import hashlib
 import html
 import json
 import logging
+import os
 import re
 import shlex
 import subprocess
@@ -20,8 +21,9 @@ from katteb.queue import KattebQueueManager
 
 logger = logging.getLogger("katteb.wordpress")
 
-# BBM WordPress root resolution
-BBM_WP_ROOT = Path("/Users/klkro/Projects/bbm-wordpress")
+# BBM WordPress root resolution (configurable via BBM_WP_ROOT environment variable)
+DEFAULT_BBM_WP_ROOT = Path.home() / "Projects" / "bbm-wordpress"
+BBM_WP_ROOT = Path(os.getenv("BBM_WP_ROOT", str(DEFAULT_BBM_WP_ROOT))).expanduser()
 WP_GLOBAL_SCRIPT = BBM_WP_ROOT / "scripts" / "wp-cli" / "wp-global"
 
 # Common country name to ISO 3166-1 alpha-2 map for Katteb 'country' param
@@ -230,7 +232,7 @@ def validate_and_authorize_site_alias(site: str, allow_custom: bool = False) -> 
     validated = validate_site_alias(site)
     profile = resolve_fleet_profile(validated)
     if profile:
-        return profile.get("wp_cli_alias", f"@{validated}.prod")
+        return str(profile.get("wp_cli_alias", f"@{validated}.prod"))
     if allow_custom:
         return f"@{validated}.prod" if not validated.startswith("@") else validated
     raise PermissionError(
@@ -248,16 +250,18 @@ def resolve_country_code(country_name: str | None) -> str:
 
 def run_wp_cli(alias: str, command: str | list[str], timeout: int = 45, allow_custom: bool = False) -> str:
     """Execute a WP-CLI command via wp-global safely using structured argv list."""
-    target_alias = validate_and_authorize_site_alias(alias, allow_custom=allow_custom)
+    if not WP_GLOBAL_SCRIPT.is_file():
+        raise FileNotFoundError(
+            f"WP-CLI wrapper script not found at '{WP_GLOBAL_SCRIPT}'. "
+            "Set BBM_WP_ROOT environment variable to the root directory of your WordPress repository."
+        )
 
-    if isinstance(command, list):
-        cli_subcmd = command
-    else:
-        cli_subcmd = shlex.split(command)
+    target_alias = validate_and_authorize_site_alias(alias, allow_custom=allow_custom)
+    cli_subcmd = command if isinstance(command, list) else shlex.split(command)
 
     cmd_args = ["bash", str(WP_GLOBAL_SCRIPT), target_alias, *cli_subcmd]
 
-    res = subprocess.run(
+    res = subprocess.run(  # nosec B603
         cmd_args,
         shell=False,
         cwd=str(BBM_WP_ROOT),
@@ -281,7 +285,6 @@ def run_wp_eval(alias: str, php_code: str, timeout: int = 60, allow_custom: bool
         return out
 
 
-
 def is_error_payload(text: str) -> tuple[bool, str]:
     """Check whether text represents a provider error response (JSON or HTML error page)."""
     if not text or not text.strip():
@@ -293,11 +296,12 @@ def is_error_payload(text: str) -> tuple[bool, str]:
     if (stripped.startswith("{") and stripped.endswith("}")) or (stripped.startswith("[") and stripped.endswith("]")):
         try:
             parsed = json.loads(stripped)
-            if isinstance(parsed, dict):
-                if parsed.get("status") == "error" or parsed.get("success") is False or "error" in parsed:
-                    err_detail = parsed.get("error") or parsed.get("message") or str(parsed)
-                    return True, f"JSON error payload from provider: {err_detail}"
-        except Exception:
+            if isinstance(parsed, dict) and (
+                parsed.get("status") == "error" or parsed.get("success") is False or "error" in parsed
+            ):
+                err_detail = parsed.get("error") or parsed.get("message") or str(parsed)
+                return True, f"JSON error payload from provider: {err_detail}"
+        except (json.JSONDecodeError, ValueError):
             pass
 
     # 2. IP Authorization error signatures
@@ -316,7 +320,9 @@ def is_error_payload(text: str) -> tuple[bool, str]:
         return True, f"PHP/Server fatal error detected in payload: {text[:200]}"
 
     # 4. Short error payload (< 400 chars with 'Error' or 'failed')
-    if len(stripped) < 400 and ("error (" in lower or "fatal error" in lower or ("error" in lower and "failed" in lower)):
+    if len(stripped) < 400 and (
+        "error (" in lower or "fatal error" in lower or ("error" in lower and "failed" in lower)
+    ):
         return True, f"Short error payload detected: {stripped}"
 
     return False, ""
@@ -461,7 +467,9 @@ def generate_expansion_receipt(
 ) -> str:
     """Generate and write Markdown and JSON audit receipts for a batch expansion run."""
     allowed_root = Path(safe_root).resolve() if safe_root else Path.cwd().resolve()
-    target_dir = (allowed_root / output_dir).resolve() if not Path(output_dir).is_absolute() else Path(output_dir).resolve()
+    target_dir = (
+        (allowed_root / output_dir).resolve() if not Path(output_dir).is_absolute() else Path(output_dir).resolve()
+    )
 
     default_app_root = (Path.home() / ".katteb" / "receipts").resolve()
     is_safe = False
@@ -543,7 +551,7 @@ class WordPressFleetManager:
     def check_site_connectivity(self, site: str, allow_custom: bool = False) -> PreflightResult:
         """Check if WP-CLI can connect to the target fleet site and return typed PreflightResult."""
         try:
-            target_alias = validate_and_authorize_site_alias(site, allow_custom=allow_custom)
+            validate_and_authorize_site_alias(site, allow_custom=allow_custom)
         except PermissionError as e:
             return PreflightResult(
                 success=False,
@@ -590,7 +598,6 @@ class WordPressFleetManager:
                 exit_code=1,
             )
 
-
     def audit_low_word_posts(
         self,
         site: str = "destinations-ai",
@@ -604,25 +611,30 @@ class WordPressFleetManager:
         status_arr = [s.strip() for s in status.split(",")]
         status_json = json.dumps(status_arr)
 
-        php_script = f"""
+        b64_pts = base64.b64encode(pts_json.encode("utf-8")).decode("utf-8")
+        b64_statuses = base64.b64encode(status_json.encode("utf-8")).decode("utf-8")
+        safe_max_words = int(max_words)
+
+        # Construct PHP query script using base64 encoded parameters to eliminate injection vectors
+        php_template = """
         global $wpdb;
-        $pts = json_decode('{pts_json}', true);
-        $statuses = json_decode('{status_json}', true);
+        $pts = json_decode(base64_decode('__B64_PTS__'), true);
+        $statuses = json_decode(base64_decode('__B64_STATUSES__'), true);
         $status_in = implode("','", array_map('esc_sql', $statuses));
 
         $low_posts = array();
-        foreach ($pts as $pt) {{
+        foreach ($pts as $pt) {
             $posts = $wpdb->get_results("
                 SELECT ID, post_title, post_name, post_status, post_type, post_content
-                FROM {{$wpdb->posts}}
+                FROM {$wpdb->posts}
                 WHERE post_type = '" . esc_sql($pt) . "' AND post_status IN ('$status_in')
             ");
 
-            foreach ($posts as $p) {{
+            foreach ($posts as $p) {
                 $clean = trim(preg_replace('/\\s+/', ' ', strip_tags($p->post_content)));
                 $wc = empty($clean) ? 0 : str_word_count($clean);
 
-                if ($wc < {max_words}) {{
+                if ($wc < __SAFE_MAX_WORDS__) {
                     $country = get_post_meta($p->ID, 'country', true) ?: '';
                     $region = get_post_meta($p->ID, 'region', true) ?: '';
                     $city = get_post_meta($p->ID, 'city', true) ?: get_post_meta($p->ID, 'city_name', true) ?: '';
@@ -641,13 +653,18 @@ class WordPressFleetManager:
                         'country' => $country,
                         'region' => $region
                     );
-                }}
-            }}
-        }}
+                }
+            }
+        }
 
-        usort($low_posts, function($a, $b) {{ return $a['content_wc'] - $b['content_wc']; }});
+        usort($low_posts, function($a, $b) { return $a['content_wc'] - $b['content_wc']; });
         echo json_encode($low_posts);
         """
+        php_script = (
+            php_template.replace("__B64_PTS__", b64_pts)
+            .replace("__B64_STATUSES__", b64_statuses)
+            .replace("__SAFE_MAX_WORDS__", str(safe_max_words))
+        )
 
         result = run_wp_eval(site, php_script)
         if isinstance(result, list):
@@ -656,8 +673,9 @@ class WordPressFleetManager:
 
     def get_post_details(self, site: str, post_id: int) -> dict[str, Any]:
         """Fetch detailed post information including custom fields and meta."""
+        safe_post_id = int(post_id)
         php_script = f"""
-        $p = get_post({post_id});
+        $p = get_post({safe_post_id});
         if (!$p) {{
             echo json_encode(array('error' => 'Post not found'));
             exit;
@@ -893,7 +911,9 @@ class WordPressFleetManager:
                     "title": title,
                     "previous_word_count": res_dict["previous_word_count"],
                     "new_word_count": res_dict["new_word_count"],
-                    "words_generated": max(0, (res_dict["new_word_count"] or 0) - (res_dict["previous_word_count"] or 0)),
+                    "words_generated": max(
+                        0, (res_dict["new_word_count"] or 0) - (res_dict["previous_word_count"] or 0)
+                    ),
                     "estimated_credits": 1,
                     "duration_seconds": duration,
                     "success": True,
@@ -903,4 +923,3 @@ class WordPressFleetManager:
             logger.warning("Failed to record post expansion telemetry: %s", e)
 
         return res_dict
-

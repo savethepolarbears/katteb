@@ -111,7 +111,16 @@ def process_pipeline_event(
         if validated.receipt_dir:
             resolved_rcpt = Path(validated.receipt_dir).resolve()
             forbidden_roots = [
-                f.resolve() for f in [Path("/etc"), Path("/var"), Path("/usr"), Path("/bin"), Path("/sbin"), Path("/System"), Path("/private")]
+                f.resolve()
+                for f in [
+                    Path("/etc"),
+                    Path("/var"),
+                    Path("/usr"),
+                    Path("/bin"),
+                    Path("/sbin"),
+                    Path("/System"),
+                    Path("/private"),
+                ]
             ]
             for f_root in forbidden_roots:
                 if resolved_rcpt == f_root or f_root in resolved_rcpt.parents:

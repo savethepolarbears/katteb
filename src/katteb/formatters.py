@@ -103,12 +103,12 @@ def format_styles(styles: list[Any], as_json: bool = False) -> None:
     table.add_column("Active")
 
     for s in styles:
-        s_id = str(getattr(s, "id", "") or s.get("id", ""))
-        s_name = getattr(s, "name", "") or s.get("name", "")
-        s_desc = getattr(s, "description", "") or s.get("description", "") or "-"
-        active = (
-            "✅" if (getattr(s, "is_active", True) if hasattr(s, "is_active") else s.get("is_active", True)) else "❌"
-        )
+        s_id = str(getattr(s, "id", None) if hasattr(s, "id") else s.get("id", ""))
+        s_name = str(getattr(s, "name", None) if hasattr(s, "name") else s.get("name", ""))
+        raw_desc = getattr(s, "description", None) if hasattr(s, "description") else s.get("description")
+        s_desc = str(raw_desc or "-")
+        raw_active = getattr(s, "is_active", None) if hasattr(s, "is_active") else s.get("is_active")
+        active = "✅" if raw_active is not False else "❌"
         table.add_row(s_id, s_name, s_desc[:50], active)
 
     console.print(table)
@@ -125,9 +125,10 @@ def format_brands(brands: list[Any], as_json: bool = False) -> None:
     table.add_column("URL", style="dim")
 
     for b in brands:
-        b_id = str(getattr(b, "id", "") or b.get("id", ""))
-        b_name = getattr(b, "name", "") or b.get("name", "")
-        b_url = getattr(b, "url", "") or b.get("url", "") or "-"
+        b_id = str(getattr(b, "id", None) if hasattr(b, "id") else b.get("id", ""))
+        b_name = str(getattr(b, "name", None) if hasattr(b, "name") else b.get("name", ""))
+        raw_url = getattr(b, "url", None) if hasattr(b, "url") else b.get("url")
+        b_url = str(raw_url or "-")
         table.add_row(b_id, b_name, b_url)
 
     console.print(table)

@@ -43,8 +43,10 @@ def test_queue_generate_with_429_concurrency_interception(queue_manager):
         active_job_type="article",
     )
 
-    with patch.object(queue_manager.client, "generate_article", side_effect=[rate_err, mock_gen_resp]), \
-         patch.object(queue_manager.client, "poll_article_until_complete") as mock_poll:
+    with (
+        patch.object(queue_manager.client, "generate_article", side_effect=[rate_err, mock_gen_resp]),
+        patch.object(queue_manager.client, "poll_article_until_complete") as mock_poll,
+    ):
         statuses = []
         job_id = queue_manager.generate_with_concurrency_wait(
             topic="Test 429 Topic",
@@ -66,8 +68,10 @@ def test_queue_generate_and_wait(queue_manager):
         word_count=2000,
     )
 
-    with patch.object(queue_manager, "generate_with_concurrency_wait", return_value=103), \
-         patch.object(queue_manager.client, "poll_article_until_complete", return_value=mock_article):
+    with (
+        patch.object(queue_manager, "generate_with_concurrency_wait", return_value=103),
+        patch.object(queue_manager.client, "poll_article_until_complete", return_value=mock_article),
+    ):
         res = queue_manager.generate_and_wait(topic="Rome Guide")
         assert res.job_id == 103
         assert res.status == "completed"

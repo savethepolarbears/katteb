@@ -53,7 +53,6 @@ class KattebAuthError(KattebAPIError):
         self.portal_url = portal_url
 
 
-
 class KattebCreditError(KattebAPIError):
     """Raised on 402 Insufficient Credits."""
 
@@ -126,6 +125,8 @@ class KattebClient:
         can_retry = is_idempotent or retry_unsafe
         start_monotonic = time.monotonic()
 
+        rng = random.SystemRandom()
+
         for attempt in range(max_retries + 1):
             if total_timeout and (time.monotonic() - start_monotonic) >= total_timeout:
                 raise KattebAPIError(f"Request exceeded total timeout budget of {total_timeout}s")
@@ -142,10 +143,12 @@ class KattebClient:
             except requests.exceptions.RequestException as e:
                 last_error = e
                 if can_retry and attempt < max_retries:
-                    delay = initial_delay * (backoff_factor ** attempt) + random.uniform(0, 0.5)
+                    delay = initial_delay * (backoff_factor**attempt) + rng.uniform(0, 0.5)
                     (self.sleeper or time.sleep)(delay)
                     continue
-                raise KattebAPIError(f"Network error connecting to Katteb API ({method.upper()} {endpoint}): {e}") from e
+                raise KattebAPIError(
+                    f"Network error connecting to Katteb API ({method.upper()} {endpoint}): {e}"
+                ) from e
 
             # Parse JSON response
             try:
@@ -167,9 +170,9 @@ class KattebClient:
                         try:
                             delay = min(float(retry_header), 60.0)
                         except ValueError:
-                            delay = initial_delay * (backoff_factor ** attempt) + random.uniform(0, 0.5)
+                            delay = initial_delay * (backoff_factor**attempt) + rng.uniform(0, 0.5)
                     else:
-                        delay = initial_delay * (backoff_factor ** attempt) + random.uniform(0, 0.5)
+                        delay = initial_delay * (backoff_factor**attempt) + rng.uniform(0, 0.5)
                     (self.sleeper or time.sleep)(delay)
                     continue
                 raise last_error

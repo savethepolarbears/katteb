@@ -81,4 +81,3 @@ def test_account_credits_pool_alias():
     res = AccountCreditsResponse.model_validate(raw)
     assert res.credits == 20000
     assert res.credits_pool == 20000
-
