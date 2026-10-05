@@ -274,5 +274,3 @@ class PreflightResult(BaseModel):
 
     def __bool__(self) -> bool:
         return self.success
-
-

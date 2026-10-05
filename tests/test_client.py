@@ -95,8 +95,7 @@ def test_request_retry_on_502_success(client):
     ok_resp.status_code = 200
     ok_resp.json.return_value = {"success": True, "credits": 1000}
 
-    with patch.object(client.session, "request", side_effect=[err_resp, ok_resp]), \
-         patch("time.sleep") as mock_sleep:
+    with patch.object(client.session, "request", side_effect=[err_resp, ok_resp]), patch("time.sleep") as mock_sleep:
         res = client._request("GET", "account/credits", max_retries=2, initial_delay=0.1)
         assert res["credits"] == 1000
         mock_sleep.assert_called_once()
@@ -109,8 +108,7 @@ def test_request_retry_exhausted_raises_api_error(client):
     err_resp.status_code = 503
     err_resp.json.return_value = {"error": "Service Unavailable"}
 
-    with patch.object(client.session, "request", return_value=err_resp), \
-         patch("time.sleep"):
+    with patch.object(client.session, "request", return_value=err_resp), patch("time.sleep"):
         with pytest.raises(KattebAPIError) as exc:
             client._request("GET", "account/credits", max_retries=2, initial_delay=0.01)
         assert exc.value.status_code == 503
@@ -118,14 +116,17 @@ def test_request_retry_exhausted_raises_api_error(client):
 
 def test_request_retry_on_network_connection_error(client):
     import requests
-    from katteb.client import KattebAPIError
 
     ok_resp = MagicMock()
     ok_resp.status_code = 200
     ok_resp.json.return_value = {"success": True}
 
-    with patch.object(client.session, "request", side_effect=[requests.exceptions.ConnectionError("Connection reset"), ok_resp]), \
-         patch("time.sleep"):
+    with (
+        patch.object(
+            client.session, "request", side_effect=[requests.exceptions.ConnectionError("Connection reset"), ok_resp]
+        ),
+        patch("time.sleep"),
+    ):
         res = client._request("GET", "styles/list", max_retries=2, initial_delay=0.01)
         assert res["success"] is True
 
@@ -155,8 +156,7 @@ def test_post_request_does_not_retry_by_default(client):
     err_resp.status_code = 500
     err_resp.json.return_value = {"error": "Internal Server Error"}
 
-    with patch.object(client.session, "request", return_value=err_resp) as mock_req, \
-         patch("time.sleep") as mock_sleep:
+    with patch.object(client.session, "request", return_value=err_resp) as mock_req, patch("time.sleep") as mock_sleep:
         with pytest.raises(KattebAPIError):
             client._request("POST", "articles/generate", json_data={"topic": "Test"}, max_retries=3)
         # Should not retry POST requests by default to avoid duplicate paid generation
@@ -195,10 +195,74 @@ def test_request_total_timeout_enforced(client):
     err_resp.status_code = 502
     err_resp.json.return_value = {"error": "Bad Gateway"}
 
-    with patch.object(client.session, "request", return_value=err_resp), \
-         patch("time.sleep"):
-        with pytest.raises(KattebAPIError, match="total timeout budget"):
-            # Set total_timeout to -1 to trigger immediate timeout
-            client._request("GET", "account/limits", total_timeout=-1)
+    with (
+        patch.object(client.session, "request", return_value=err_resp),
+        patch("time.sleep"),
+        pytest.raises(KattebAPIError, match="total timeout budget"),
+    ):
+        # Set total_timeout to -1 to trigger immediate timeout
+        client._request("GET", "account/limits", total_timeout=-1)
 
 
+def test_client_additional_api_methods(client):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+
+    # 1. list_styles
+    mock_resp.json.return_value = {"success": True, "styles": [{"id": 1, "name": "News"}]}
+    with patch.object(client.session, "request", return_value=mock_resp):
+        res = client.list_styles()
+        assert len(res.styles) == 1
+
+    # 2. list_brands
+    mock_resp.json.return_value = {"success": True, "brands": [{"id": 2, "name": "BrandX"}]}
+    with patch.object(client.session, "request", return_value=mock_resp):
+        res = client.list_brands()
+        assert len(res.brands) == 1
+
+    # 3. cancel_article
+    mock_resp.json.return_value = {"success": True, "cancelled": True}
+    with patch.object(client.session, "request", return_value=mock_resp):
+        res = client.cancel_article(99)
+        assert res["success"] is True
+
+    # 4. analyze_seo & get_seo
+    mock_resp.json.return_value = {"success": True, "job_id": 55}
+    with patch.object(client.session, "request", return_value=mock_resp):
+        res = client.analyze_seo(type="url", value="https://example.com")
+        assert res.job_id == 55
+
+    mock_resp.json.return_value = {"success": True, "job_id": 55, "score": 85}
+    with patch.object(client.session, "request", return_value=mock_resp):
+        res = client.get_seo(55)
+        assert res.job_id == 55
+
+    # 5. list_articles & get_article
+    mock_resp.json.return_value = {"success": True, "articles": [{"id": 1, "topic": "Travel Guide"}]}
+    with patch.object(client.session, "request", return_value=mock_resp):
+        res = client.list_articles()
+        assert len(res.articles) == 1
+
+    mock_resp.json.return_value = {"success": True, "job_id": 1, "topic": "Travel Guide", "status": "completed"}
+    with patch.object(client.session, "request", return_value=mock_resp):
+        res = client.get_article(1)
+        assert res.job_id == 1
+
+    # 5. detect_ai & rewrite_humanizer
+    mock_resp.json.return_value = {"success": True, "ai_probability": 10, "verdict": "likely_human"}
+    with patch.object(client.session, "request", return_value=mock_resp):
+        res = client.detect_ai(
+            "Hello world text that is long enough to exceed the fifty character minimum requirement for detection."
+        )
+        assert res.ai_probability == 10
+
+    mock_resp.json.return_value = {"success": True, "rewritten_text": "Human text", "credits_charged": 1}
+    with patch.object(client.session, "request", return_value=mock_resp):
+        res = client.rewrite_humanizer("This is robotic AI generated text that needs rewriting.")
+        assert res.rewritten_text == "Human text"
+
+    # 6. verify_fact
+    mock_resp.json.return_value = {"success": True, "verdict": "TRUE", "explanation": "Fact verified"}
+    with patch.object(client.session, "request", return_value=mock_resp):
+        res = client.verify_fact("Water boils at 100C")
+        assert res.verdict == "TRUE"

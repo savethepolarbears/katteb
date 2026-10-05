@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -44,9 +44,11 @@ def test_expand_post_dry_run(wp_manager):
         },
     }
 
-    with patch.object(wp_manager, "get_post_details", return_value=mock_post), \
-         patch.object(wp_manager.queue, "generate_and_wait") as mock_gen, \
-         patch("katteb.wordpress.run_wp_eval") as mock_eval:
+    with (
+        patch.object(wp_manager, "get_post_details", return_value=mock_post),
+        patch.object(wp_manager.queue, "generate_and_wait") as mock_gen,
+        patch("katteb.wordpress.run_wp_eval") as mock_eval,
+    ):
         res = wp_manager.expand_and_update_post(
             site="destinations-ai",
             post_id=12345,
@@ -82,8 +84,10 @@ def test_ip_authorization_guard(wp_manager):
         word_count=10,
     )
 
-    with patch.object(wp_manager, "get_post_details", return_value=mock_post), \
-         patch.object(wp_manager.queue, "generate_and_wait", return_value=mock_article):
+    with (
+        patch.object(wp_manager, "get_post_details", return_value=mock_post),
+        patch.object(wp_manager.queue, "generate_and_wait", return_value=mock_article),
+    ):
         with pytest.raises(RuntimeError) as exc_info:
             wp_manager.expand_and_update_post(site="destinations-ai", post_id=12345)
         assert "Your IP is not authorized" in str(exc_info.value)
@@ -107,8 +111,10 @@ def test_error_payload_guard(wp_manager):
         word_count=5,
     )
 
-    with patch.object(wp_manager, "get_post_details", return_value=mock_post), \
-         patch.object(wp_manager.queue, "generate_and_wait", return_value=mock_article):
+    with (
+        patch.object(wp_manager, "get_post_details", return_value=mock_post),
+        patch.object(wp_manager.queue, "generate_and_wait", return_value=mock_article),
+    ):
         with pytest.raises(RuntimeError) as exc_info:
             wp_manager.expand_and_update_post(site="destinations-ai", post_id=12345)
         assert "error payload" in str(exc_info.value).lower()
@@ -124,9 +130,15 @@ def test_meta_description_sanitizer(wp_manager):
     }
     raw_desc = "<style>.entry-content { font-size: 14px; }</style> Complete guide to visiting Zurich in 2026. .sidebar { display: none; }"
     valid_html = (
-        "<h2>Welcome to Zurich</h2><p>" + " ".join(["Zurich is a magnificent Swiss destination rich in history."] * 15) + "</p>"
-        "<h2>Top Attractions</h2><p>" + " ".join(["Explore the picturesque alleys of the medieval Altstadt."] * 15) + "</p>"
-        "<h3>Lake Zurich Cruises</h3><p>" + " ".join(["Take a scenic boat trip across the pristine waters."] * 15) + "</p>"
+        "<h2>Welcome to Zurich</h2><p>"
+        + " ".join(["Zurich is a magnificent Swiss destination rich in history."] * 15)
+        + "</p>"
+        "<h2>Top Attractions</h2><p>"
+        + " ".join(["Explore the picturesque alleys of the medieval Altstadt."] * 15)
+        + "</p>"
+        "<h3>Lake Zurich Cruises</h3><p>"
+        + " ".join(["Take a scenic boat trip across the pristine waters."] * 15)
+        + "</p>"
     )
     mock_article = ArticleGetResponse(
         success=True,
@@ -139,15 +151,16 @@ def test_meta_description_sanitizer(wp_manager):
         meta_description=raw_desc,
     )
 
-    with patch.object(wp_manager, "get_post_details", return_value=mock_post), \
-         patch.object(wp_manager.queue, "generate_and_wait", return_value=mock_article), \
-         patch("katteb.wordpress.run_wp_eval", return_value={"success": True, "new_word_count": 1800}):
+    with (
+        patch.object(wp_manager, "get_post_details", return_value=mock_post),
+        patch.object(wp_manager.queue, "generate_and_wait", return_value=mock_article),
+        patch("katteb.wordpress.run_wp_eval", return_value={"success": True, "new_word_count": 1800}),
+    ):
         res = wp_manager.expand_and_update_post(site="destinations-ai", post_id=12345, word_count=500)
         assert res["success"] is True
         assert "<style>" not in res["meta_description"]
         assert ".entry-content" not in res["meta_description"]
         assert "Complete guide to visiting Zurich in 2026." in res["meta_description"]
-
 
 
 def test_validate_site_alias():
@@ -195,11 +208,16 @@ def test_check_site_connectivity(wp_manager):
 
 
 def test_preflight_failure_blocks_generation(wp_manager):
-    with patch.object(
-        wp_manager,
-        "check_site_connectivity",
-        return_value=PreflightResult(success=False, site="destinations-ai", category="ssh_error", message="SSH timeout"),
-    ), patch.object(wp_manager.queue, "generate_and_wait") as mock_gen:
+    with (
+        patch.object(
+            wp_manager,
+            "check_site_connectivity",
+            return_value=PreflightResult(
+                success=False, site="destinations-ai", category="ssh_error", message="SSH timeout"
+            ),
+        ),
+        patch.object(wp_manager.queue, "generate_and_wait") as mock_gen,
+    ):
         with pytest.raises(RuntimeError, match="Preflight check failed"):
             wp_manager.expand_and_update_post(site="destinations-ai", post_id=12345)
         # Katteb API generation must never be invoked if preflight connectivity fails
@@ -211,11 +229,17 @@ def test_validate_generated_content_valid():
 
     paragraphs = [
         "<h2>Overview & History</h2>",
-        "<p>" + " ".join(["Zurich is Switzerland's financial and cultural center nestled beside Lake Zurich."] * 15) + "</p>",
+        "<p>"
+        + " ".join(["Zurich is Switzerland's financial and cultural center nestled beside Lake Zurich."] * 15)
+        + "</p>",
         "<h2>Top Things to Do</h2>",
-        "<p>" + " ".join(["Wander through the historic Niederdorf quarter with ancient cobblestone streets."] * 15) + "</p>",
+        "<p>"
+        + " ".join(["Wander through the historic Niederdorf quarter with ancient cobblestone streets."] * 15)
+        + "</p>",
         "<h3>Lake Zurich Boat Excursions</h3>",
-        "<p>" + " ".join(["Scenic passenger ships navigate the alpine waters offering views of snowcapped peaks."] * 15) + "</p>",
+        "<p>"
+        + " ".join(["Scenic passenger ships navigate the alpine waters offering views of snowcapped peaks."] * 15)
+        + "</p>",
     ]
     html = "".join(paragraphs)
     errors = validate_generated_content(html, target_word_count=500)
@@ -226,7 +250,13 @@ def test_validate_generated_content_missing_headings():
     from katteb.wordpress import validate_generated_content
 
     # Missing H3
-    html = "<h2>Overview</h2><p>" + " ".join(["Text content."] * 30) + "</p><h2>Details</h2><p>" + " ".join(["More text."] * 30) + "</p>"
+    html = (
+        "<h2>Overview</h2><p>"
+        + " ".join(["Text content."] * 30)
+        + "</p><h2>Details</h2><p>"
+        + " ".join(["More text."] * 30)
+        + "</p>"
+    )
     errors = validate_generated_content(html, target_word_count=1200)
     assert any("H3 subsections" in e for e in errors)
 
@@ -246,7 +276,11 @@ def test_validate_generated_content_rejects_empty_and_code_headings():
     assert any("H3 subsections" in e for e in errors)
 
     # Headings inside <pre><code> blocks should not count as semantic article structure
-    html_in_pre = "<pre><h2>Fake Heading In Code</h2><h3>Fake Subheading</h3></pre><p>" + " ".join(["Article body."] * 40) + "</p>"
+    html_in_pre = (
+        "<pre><h2>Fake Heading In Code</h2><h3>Fake Subheading</h3></pre><p>"
+        + " ".join(["Article body."] * 40)
+        + "</p>"
+    )
     errors_pre = validate_generated_content(html_in_pre, target_word_count=1200)
     assert any("H2 structure" in e for e in errors_pre)
 
@@ -293,7 +327,9 @@ def test_is_error_payload():
     assert is_err is True
 
     # HTML 500/502 page
-    is_err, msg = is_error_payload("<html><head><title>502 Bad Gateway</title></head><body>502 Server Error</body></html>")
+    is_err, msg = is_error_payload(
+        "<html><head><title>502 Bad Gateway</title></head><body>502 Server Error</body></html>"
+    )
     assert is_err is True
     assert "HTML server error page" in msg
 
@@ -303,7 +339,9 @@ def test_is_error_payload():
     assert "IP authorization error" in msg
 
     # Normal valid HTML
-    is_err, msg = is_error_payload("<h2>Overview</h2><p>Zurich is a beautiful destination in Switzerland with mountain views.</p>")
+    is_err, msg = is_error_payload(
+        "<h2>Overview</h2><p>Zurich is a beautiful destination in Switzerland with mountain views.</p>"
+    )
     assert is_err is False
     assert msg == ""
 
@@ -330,8 +368,10 @@ def test_expand_post_raises_content_quality_error(wp_manager):
         meta_description="Guide",
     )
 
-    with patch.object(wp_manager, "get_post_details", return_value=mock_post), \
-         patch.object(wp_manager.queue, "generate_and_wait", return_value=mock_article):
+    with (
+        patch.object(wp_manager, "get_post_details", return_value=mock_post),
+        patch.object(wp_manager.queue, "generate_and_wait", return_value=mock_article),
+    ):
         with pytest.raises(ContentQualityError) as exc_info:
             wp_manager.expand_and_update_post(site="destinations-ai", post_id=12345, word_count=1200)
         assert "failed quality gates" in str(exc_info.value)
@@ -369,6 +409,7 @@ def test_generate_expansion_receipt(tmp_path):
 
     import json
     import os
+
     assert os.path.exists(receipt_file)
     with open(receipt_file, encoding="utf-8") as f:
         content = f.read()
@@ -385,6 +426,3 @@ def test_generate_expansion_receipt(tmp_path):
     assert json_data["site"] == "destinations-ai"
     assert json_data["total_posts"] == 2
     assert "audit_hash" in json_data
-
-
-

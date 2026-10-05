@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from pydantic import ValidationError
 
 from katteb.cli import cli
 from katteb.pipeline import PipelineEventPayload, process_pipeline_event
@@ -59,11 +60,13 @@ def test_process_pipeline_event_unsupported_event():
 
 
 def test_process_pipeline_event_invalid_site():
-    res = process_pipeline_event({
-        "event": "post_expansion_requested",
-        "site": "invalid;site|injection",
-        "post_id": 123,
-    })
+    res = process_pipeline_event(
+        {
+            "event": "post_expansion_requested",
+            "site": "invalid;site|injection",
+            "post_id": 123,
+        }
+    )
     assert res["success"] is False
     assert "Invalid site alias" in res["error"]
 
@@ -103,12 +106,14 @@ def test_process_pipeline_event_live_success():
         "meta_description": "Curated guide to Amsterdam.",
     }
 
-    payload = json.dumps({
-        "event": "post_expansion_requested",
-        "site": "amsterdamlocalgems",
-        "post_id": 200,
-        "target_words": 1800,
-    })
+    payload = json.dumps(
+        {
+            "event": "post_expansion_requested",
+            "site": "amsterdamlocalgems",
+            "post_id": 200,
+            "target_words": 1800,
+        }
+    )
 
     res = process_pipeline_event(payload, wp_manager=mock_manager)
     assert res["success"] is True
@@ -159,11 +164,13 @@ def test_pipeline_dispatch_cli_stdin():
         "receipt_path": None,
     }
 
-    input_payload = json.dumps({
-        "event": "post_expansion_requested",
-        "site": "viatravelers",
-        "post_id": 400,
-    })
+    input_payload = json.dumps(
+        {
+            "event": "post_expansion_requested",
+            "site": "viatravelers",
+            "post_id": 400,
+        }
+    )
 
     with patch("katteb.pipeline.process_pipeline_event", return_value=mock_result):
         result = runner.invoke(
@@ -184,7 +191,7 @@ def test_pipeline_payload_forbids_extra_fields():
         "post_id": 123,
         "unexpected_field": "injected_value",
     }
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         PipelineEventPayload.model_validate(payload)
 
 

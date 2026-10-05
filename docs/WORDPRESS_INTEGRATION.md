@@ -47,5 +47,15 @@ The Katteb toolkit includes deep integration with the Black Bear Media WordPress
    ```
 4. **Verify on Live WordPress:**
    ```bash
-   bash /Users/klkro/Projects/bbm-wordpress/scripts/wp-cli/wp-global @destinations-ai.prod post get 97748 --field=post_content
+   bash "${BBM_WP_ROOT:-$HOME/Projects/bbm-wordpress}/scripts/wp-cli/wp-global" @destinations-ai.prod post get 97748 --field=post_content
    ```
+
+## Configuration
+
+Set `BBM_WP_ROOT` in your environment or `.env` file if your local WordPress repository is installed in a non-default path:
+
+```bash
+export BBM_WP_ROOT="/path/to/bbm-wordpress"
+```
+
+If not provided, Katteb defaults to checking `os.getenv("BBM_WP_ROOT")` or `$HOME/Projects/bbm-wordpress`. If the required `wp-global` script is not located, a clean `FileNotFoundError` will be raised with actionable guidance.

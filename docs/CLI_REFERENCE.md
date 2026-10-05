@@ -1,6 +1,8 @@
 # Katteb CLI Reference Guide
 
-The `katteb` CLI provides command-line control for all Katteb API operations, local configuration, and WordPress fleet enrichment.
+The `katteb` CLI provides command-line control for all Katteb API operations, local configuration, WordPress fleet content enrichment, automated pipeline dispatch, and telemetry observability.
+
+---
 
 ## Global Flags
 
@@ -14,7 +16,7 @@ The `katteb` CLI provides command-line control for all Katteb API operations, lo
 ## Configuration Commands (`katteb config`)
 
 ### `katteb config set-key <KEY>`
-Persists your Katteb API key securely in `~/.katteb/config.json`.
+Persists your Katteb API key securely in `~/.katteb/config.json` with `0600` filesystem permissions.
 ```bash
 katteb config set-key katteb_live_xxxxxxxx
 ```
@@ -30,7 +32,7 @@ katteb config show
 ## Account Commands (`katteb account`)
 
 ### `katteb account credits`
-Shows remaining credit balance and daily heavy/read API usage counts.
+Shows remaining credit balance, pooled/available credits, brand allocations, and daily API usage counts.
 ```bash
 katteb account credits
 katteb account credits --json
@@ -80,6 +82,9 @@ Generates an article. By default, waits and polls until generation is complete.
 ```bash
 # Generate with live progress and table output
 katteb article generate -t "Best Digital Nomad Destinations in Portugal" -w 2000 -c pt
+
+# Include specific enhancements
+katteb article generate -t "Top AI Coding Tools" -w 1500 -e tldr -e key_takeaways -e faq
 
 # Non-blocking async queue
 katteb article generate -t "Top Hiking Backpacks" -w 1500 --no-wait
@@ -139,26 +144,72 @@ katteb factcheck verify -c "The Great Wall of China is visible from space with t
 
 ---
 
-## WordPress Fleet Integration (`katteb wp`)
+## WordPress Fleet Automation (`katteb wp`)
 
 ### `katteb wp audit-low-words`
-Audits thin posts on target WordPress site.
+Audits thin posts on target WordPress site below a given word threshold.
 ```bash
 katteb wp audit-low-words --site destinations-ai --threshold 400 --limit 25
 ```
 
 ### `katteb wp expand-post`
-Expands a specific post on WordPress via Katteb API.
+Expands a specific post on WordPress via Katteb API and updates `post_content`, Pods custom fields, and RankMath SEO metadata.
 ```bash
 # Dry-run preview
 katteb wp expand-post --site destinations-ai --id 97748 --dry-run
 
 # Live generation and update
 katteb wp expand-post --site destinations-ai --id 97748 --words 1800
+
+# Specify custom receipt directory
+katteb wp expand-post --site destinations-ai --id 97748 --receipt-dir ./audit-receipts
 ```
 
 ### `katteb wp batch-expand`
 Batch expands the lowest word count posts of a specific post type.
 ```bash
-katteb wp batch-expand --site destinations-ai --post-type destinations --limit 5 --words 1800
+katteb wp batch-expand --site destinations-ai --post-type destinations --limit 5 --words 1800 --receipt-dir ./audit-receipts
+```
+
+---
+
+## Event Pipeline Dispatch (`katteb pipeline-dispatch`)
+
+Executes automated expansion pipelines triggered by webhook payloads, Activepieces flows, or stdin streams.
+
+**Options:**
+- `--stdin`: Read JSON event payload from standard input.
+- `-f, --file PATH`: Read JSON event payload from a file.
+- `--site TEXT`: Override site alias in payload.
+- `--post-id INTEGER`: Override post ID in payload.
+- `--words INTEGER`: Override target word count.
+- `--dry-run`: Run in dry-run simulation mode without updating the remote database.
+
+**Examples:**
+```bash
+# Dispatch from payload file
+katteb pipeline-dispatch -f event.json
+
+# Dispatch via piped stdin stream
+echo '{"site": "destinations-ai", "post_id": 97748, "target_words": 1800}' | katteb pipeline-dispatch --stdin
+```
+
+---
+
+## Telemetry & Observability (`katteb telemetry`)
+
+Track fleet-wide performance metrics, credit expenditures, execution durations, and run histories stored locally in `~/.katteb/telemetry.jsonl`.
+
+### `katteb telemetry summary`
+Displays aggregated metrics including total runs, success rates, words generated, and per-site breakdowns.
+```bash
+katteb telemetry summary
+katteb telemetry summary --json
+```
+
+### `katteb telemetry tail`
+Inspects the most recent recorded telemetry events.
+```bash
+katteb telemetry tail -n 20
+katteb telemetry tail -n 20 --json
 ```

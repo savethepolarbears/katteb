@@ -218,6 +218,7 @@ def test_telemetry_cli_summary(tmp_path: Path):
 
 def test_get_telemetry_events_invalid_limit(tmp_path: Path):
     import pytest
+
     with pytest.raises(ValueError) as exc:
         get_telemetry_events(limit=0)
     assert "greater than 0" in str(exc.value)
@@ -231,9 +232,9 @@ def test_get_telemetry_summary_corrupted_lines(tmp_path: Path):
     log_file = tmp_path / "corrupt_summary.jsonl"
     log_file.write_text(
         '{"timestamp": "2026-09-22T00:00:00Z", "event_type": "post_expansion", "success": true, "words_generated": 1000}\n'
-        'NOT_A_VALID_JSON_LINE\n'
+        "NOT_A_VALID_JSON_LINE\n"
         '{"timestamp": "2026-09-22T00:01:00Z", "event_type": "post_expansion", "success": false}\n'
-        'ANOTHER_CORRUPTED_LINE{{{\n',
+        "ANOTHER_CORRUPTED_LINE{{{\n",
         encoding="utf-8",
     )
 
