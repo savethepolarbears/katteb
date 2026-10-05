@@ -71,7 +71,7 @@ article = queue.generate_and_wait(
     word_count=2000,
     country="jp",
     enhancements=["tldr", "faq", "key_takeaways"],
-    on_status=lambda msg: print(f"[Status] {msg}")
+    on_status=lambda msg: print(f"[Status] {msg}"),
 )
 print(f"Generated {article.word_count} words: {article.meta_title}")
 ```
@@ -91,19 +91,11 @@ manager = WordPressFleetManager(client=client)
 
 # 1. Audit low-word posts
 thin_posts = manager.get_low_word_count_posts(
-    site="destinations-ai",
-    threshold=400,
-    post_types=["destinations", "post"],
-    limit=10
+    site="destinations-ai", threshold=400, post_types=["destinations", "post"], limit=10
 )
 
 # 2. Expand a single post
-result = manager.expand_post(
-    site="destinations-ai",
-    post_id=97748,
-    target_words=1800,
-    dry_run=False
-)
+result = manager.expand_post(site="destinations-ai", post_id=97748, target_words=1800, dry_run=False)
 print(f"Status: {result.status} | Added: {result.words_added} words")
 ```
 
@@ -117,12 +109,7 @@ Executes incoming event payloads from webhooks, queues, or scripts:
 from katteb.pipeline import KattebPipelineRunner
 
 runner = KattebPipelineRunner()
-payload = {
-    "site": "destinations-ai",
-    "post_id": 97748,
-    "target_words": 1800,
-    "dry_run": False
-}
+payload = {"site": "destinations-ai", "post_id": 97748, "target_words": 1800, "dry_run": False}
 
 result = runner.run_expansion_event(payload)
 print(f"Result: {result['status']}")

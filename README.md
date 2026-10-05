@@ -155,7 +155,7 @@ article = queue.generate_and_wait(
     word_count=2000,
     country="jp",
     enhancements=["tldr", "key_takeaways", "faq"],
-    on_status=lambda msg: print(f"Progress: {msg}")
+    on_status=lambda msg: print(f"Progress: {msg}"),
 )
 
 print(f"Generated {article.word_count} words: {article.meta_title}")

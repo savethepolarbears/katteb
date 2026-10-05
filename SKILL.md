@@ -52,18 +52,16 @@ katteb wp batch-expand --site destinations-ai --post-type destinations --limit 5
 
 ```python
 from katteb import KattebClient
+from katteb.queue import KattebQueueManager
 
 client = KattebClient()
-
-# Generate and poll until completed
-from katteb.queue import KattebQueueManager
 queue = KattebQueueManager(client)
 
 article = queue.generate_and_wait(
     topic="Best Places to Visit in Japan 2026",
     word_count=2000,
     country="jp",
-    enhancements=["tldr", "key_takeaways", "faq"]
+    enhancements=["tldr", "key_takeaways", "faq"],
 )
 
 print(f"Generated {article.word_count} words: {article.meta_title}")
