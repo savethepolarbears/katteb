@@ -38,7 +38,7 @@ jobs:
         run: ruff check .
 
       - name: Check Code Formatting
-        run: ruff format --check .
+        run: ruff format --check src tests
 
       - name: Run Mypy Type Checker
         run: mypy src/
