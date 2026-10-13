@@ -35,6 +35,8 @@ class PipelineEventPayload(BaseModel):
         description="Enhancements to request from Katteb",
     )
     guidelines: str | None = Field(default=None, description="Custom editorial guidelines")
+    language: str | None = Field(default=None, description="Target generation language (e.g. English, German, Greek)")
+    localize_idioms: bool = Field(default=True, description="Adapt regional idioms and cultural terminology")
     brand_id: int | None = Field(default=None, description="Optional Katteb brand ID")
     writing_style_id: int | None = Field(default=None, description="Optional Katteb writing style ID")
     dry_run: bool = Field(default=False, description="Dry run simulation mode")
@@ -144,6 +146,10 @@ def process_pipeline_event(
             "guidelines": validated.guidelines,
             "dry_run": validated.dry_run,
         }
+        if validated.language:
+            expand_kwargs["language"] = validated.language
+        if not validated.localize_idioms:
+            expand_kwargs["localize_idioms"] = False
         if validated.stage_draft:
             expand_kwargs["stage_draft"] = True
 
@@ -174,6 +180,8 @@ def process_pipeline_event(
             "post_id": validated.post_id,
             "dry_run": validated.dry_run,
             "stage_draft": validated.stage_draft,
+            "language": res.get("language") or validated.language,
+            "country": res.get("country"),
             "title": res.get("title"),
             "old_word_count": res.get("old_word_count") or res.get("previous_word_count") or res.get("current_word_count"),
             "new_word_count": res.get("new_word_count"),

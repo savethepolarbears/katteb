@@ -103,36 +103,54 @@ FLEET_SITE_PROFILES: dict[str, dict[str, Any]] = {
         "domain": "destinations.ai",
         "default_post_type": "destinations",
         "wp_cli_alias": "@destinations-ai.prod",
+        "default_language": "English",
+        "default_country": "us",
+        "locale_region": "global",
     },
     "viatravelers": {
         "name": "ViaTravelers",
         "domain": "viatravelers.com",
         "default_post_type": "post",
         "wp_cli_alias": "@viatravelers.prod",
+        "default_language": "English",
+        "default_country": "us",
+        "locale_region": "global",
     },
     "santorinisecrets": {
         "name": "Santorini Secrets",
         "domain": "santorinisecrets.com",
         "default_post_type": "post",
         "wp_cli_alias": "@santorinisecrets.prod",
+        "default_language": "English",
+        "default_country": "gr",
+        "locale_region": "gr",
     },
     "amsterdamlocalgems": {
         "name": "Amsterdam Local Gems",
         "domain": "amsterdamlocalgems.com",
         "default_post_type": "post",
         "wp_cli_alias": "@amsterdamlocalgems.prod",
+        "default_language": "English",
+        "default_country": "nl",
+        "locale_region": "nl",
     },
     "parkervillas": {
         "name": "Parker Villas",
         "domain": "parkervillas.com",
         "default_post_type": "post",
         "wp_cli_alias": "@parkervillas.prod",
+        "default_language": "English",
+        "default_country": "it",
+        "locale_region": "it",
     },
     "realjourneytravels": {
         "name": "Real Journey Travels",
         "domain": "realjourneytravels.com",
         "default_post_type": "post",
         "wp_cli_alias": "@realjourneytravels.prod",
+        "default_language": "English",
+        "default_country": "us",
+        "locale_region": "global",
     },
     "everythingaboutgermany": {
         "name": "Everything About Germany",
@@ -140,56 +158,196 @@ FLEET_SITE_PROFILES: dict[str, dict[str, Any]] = {
         "default_post_type": "post",
         "wp_cli_alias": "@everythingaboutgermany.prod",
         "aliases": ["everythingaboutgermany.de", "everythingaboutgermany.com"],
+        "default_language": "English",
+        "default_country": "de",
+        "locale_region": "de",
     },
     "gearbuddha": {
         "name": "Gear Buddha",
         "domain": "gearbuddha.com",
         "default_post_type": "gear",
         "wp_cli_alias": "@gearbuddha.prod",
+        "default_language": "English",
+        "default_country": "us",
+        "locale_region": "us",
     },
     "theimpactinvestor": {
         "name": "The Impact Investor",
         "domain": "theimpactinvestor.com",
         "default_post_type": "post",
         "wp_cli_alias": "@theimpactinvestor.prod",
+        "default_language": "English",
+        "default_country": "us",
+        "locale_region": "us",
     },
     "blackbearmedia": {
         "name": "Black Bear Media",
         "domain": "blackbearmedia.io",
         "default_post_type": "post",
         "wp_cli_alias": "@blackbearmedia.prod",
+        "default_language": "English",
+        "default_country": "us",
+        "locale_region": "us",
     },
     "traveleering": {
         "name": "Traveleering",
         "domain": "traveleering.com",
         "default_post_type": "post",
         "wp_cli_alias": "@traveleering.prod",
+        "default_language": "English",
+        "default_country": "us",
+        "locale_region": "global",
     },
     "workfromhomereviews": {
         "name": "Work From Home Reviews",
         "domain": "workfromhomereviews.net",
         "default_post_type": "post",
         "wp_cli_alias": "@workfromhomereviews.prod",
+        "default_language": "English",
+        "default_country": "us",
+        "locale_region": "us",
     },
     "reluctantfrugalist": {
         "name": "Reluctant Frugalist",
         "domain": "reluctantfrugalist.com",
         "default_post_type": "post",
         "wp_cli_alias": "@reluctantfrugalist.prod",
+        "default_language": "English",
+        "default_country": "us",
+        "locale_region": "us",
     },
     "paristopten": {
         "name": "Paris Top Ten",
         "domain": "paristopten.com",
         "default_post_type": "post",
         "wp_cli_alias": "@paristopten.prod",
+        "default_language": "English",
+        "default_country": "fr",
+        "locale_region": "fr",
     },
     "lovinglifeinspain": {
         "name": "Loving Life in Spain",
         "domain": "lovinglifeinspain.com",
         "default_post_type": "post",
         "wp_cli_alias": "@lovinglifeinspain.prod",
+        "default_language": "English",
+        "default_country": "es",
+        "locale_region": "es",
     },
 }
+
+LANGUAGE_NORMALIZATION_MAP: dict[str, str] = {
+    "en": "English",
+    "eng": "English",
+    "english": "English",
+    "de": "German",
+    "deu": "German",
+    "deutsch": "German",
+    "german": "German",
+    "el": "Greek",
+    "gr": "Greek",
+    "greek": "Greek",
+    "es": "Spanish",
+    "esp": "Spanish",
+    "spanish": "Spanish",
+    "español": "Spanish",
+    "fr": "French",
+    "fra": "French",
+    "french": "French",
+    "français": "French",
+    "nl": "Dutch",
+    "nld": "Dutch",
+    "dutch": "Dutch",
+    "nederlands": "Dutch",
+    "it": "Italian",
+    "ita": "Italian",
+    "italian": "Italian",
+    "italiano": "Italian",
+    "pt": "Portuguese",
+    "portuguese": "Portuguese",
+}
+
+LANGUAGE_DEFAULT_COUNTRY_MAP: dict[str, str] = {
+    "English": "us",
+    "German": "de",
+    "Greek": "gr",
+    "Spanish": "es",
+    "French": "fr",
+    "Dutch": "nl",
+    "Italian": "it",
+    "Portuguese": "pt",
+}
+
+# Regional idiom, cultural terminology, and SEO tone profiles for flagship destination locales
+LOCALIZATION_PROFILES: dict[str, dict[str, str]] = {
+    "de": {
+        "region_name": "Germany / DACH",
+        "currency": "EUR (€)",
+        "idiom_instructions": (
+            "Use authentic German/DACH regional terminology (Altstadt, Hauptbahnhof/Hbf, S-Bahn, U-Bahn, "
+            "Regionalbahn, Deutschlandticket, Biergarten, Weihnachtsmarkt), 24-hour transit times, and Euro (€) pricing."
+        ),
+    },
+    "gr": {
+        "region_name": "Greece / Cyclades",
+        "currency": "EUR (€)",
+        "idiom_instructions": (
+            "Use authentic Hellenic & Cycladic terminology (caldera, taverna, ouzeri, paralia, KTEL buses, "
+            "Athinios ferry port, Blue Star/SeaJets ferries) and Euro (€) pricing. "
+            "CRITICAL ETHICS RULE: Never recommend, depict, or mention donkey riding or donkey luggage transit in Greece; "
+            "always recommend the Fira cable car or walking."
+        ),
+    },
+    "es": {
+        "region_name": "Spain / Iberia",
+        "currency": "EUR (€)",
+        "idiom_instructions": (
+            "Use authentic Spanish regional terminology (casco antiguo, Plaza Mayor, AVE/Renfe high-speed rail, "
+            "menú del día, tapas, pintxos, sobremesa, Cercanías) and Euro (€) pricing."
+        ),
+    },
+    "fr": {
+        "region_name": "France / Paris",
+        "currency": "EUR (€)",
+        "idiom_instructions": (
+            "Use authentic French & Parisian terminology (arrondissement, Métro, RER, Navigo pass, boulangerie, "
+            "brasserie, rive gauche/rive droite, SNCF TGV) and Euro (€) pricing."
+        ),
+    },
+    "nl": {
+        "region_name": "Netherlands / Amsterdam",
+        "currency": "EUR (€)",
+        "idiom_instructions": (
+            "Use authentic Dutch terminology (grachtengordel, bruin café, hofje, fietspad, OV-chipkaart/OVpay, "
+            "NS trains, Centraal Station) and Euro (€) pricing."
+        ),
+    },
+    "it": {
+        "region_name": "Italy",
+        "currency": "EUR (€)",
+        "idiom_instructions": (
+            "Use authentic Italian regional terminology (centro storico, trattoria, osteria, enoteca, "
+            "passeggiata, coperto, Frecciarossa/Trenitalia, ZTL restricted driving zones) and Euro (€) pricing."
+        ),
+    },
+    "us": {
+        "region_name": "United States / Global",
+        "currency": "USD ($)",
+        "idiom_instructions": (
+            "Write in clear, authoritative journalistic prose with actionable travel logistics and practical tips."
+        ),
+    },
+}
+
+
+def normalize_language_name(language: str | None) -> str:
+    """Normalize a language code or name to Katteb's canonical language label (e.g. 'German', 'Greek')."""
+    if not language or not str(language).strip():
+        return "English"
+    clean = str(language).strip().lower()
+    if clean in LANGUAGE_NORMALIZATION_MAP:
+        return LANGUAGE_NORMALIZATION_MAP[clean]
+    return str(language).strip().title()
 
 
 def validate_site_alias(site: str) -> str:
@@ -246,6 +404,78 @@ def resolve_country_code(country_name: str | None) -> str:
         return "us"
     clean = country_name.strip().lower()
     return COUNTRY_ISO_MAP.get(clean, "us")
+
+
+def resolve_site_language_and_country(
+    site: str,
+    post_country: str | None = None,
+    language_override: str | None = None,
+    post_meta_language: str | None = None,
+) -> tuple[str, str]:
+    """Resolve target Katteb language and ISO country code from site profile, post metadata, and CLI overrides."""
+    profile = resolve_fleet_profile(site)
+    clean_site = (site or "").strip().lower().lstrip("@").removesuffix(".prod")
+
+    if language_override and str(language_override).strip():
+        target_language = normalize_language_name(language_override)
+    elif post_meta_language and str(post_meta_language).strip():
+        target_language = normalize_language_name(post_meta_language)
+    elif clean_site.endswith(".de"):
+        target_language = "German"
+    elif profile and profile.get("default_language"):
+        target_language = normalize_language_name(str(profile["default_language"]))
+    else:
+        target_language = "English"
+
+    if post_country and str(post_country).strip() and str(post_country).strip().lower() in COUNTRY_ISO_MAP:
+        target_country = resolve_country_code(post_country)
+    elif profile and profile.get("default_country") and str(profile["default_country"]) != "us":
+        target_country = str(profile["default_country"]).lower()
+    elif target_language in LANGUAGE_DEFAULT_COUNTRY_MAP and LANGUAGE_DEFAULT_COUNTRY_MAP[target_language] != "us":
+        target_country = LANGUAGE_DEFAULT_COUNTRY_MAP[target_language]
+    elif profile and profile.get("default_country"):
+        target_country = str(profile["default_country"]).lower()
+    else:
+        target_country = "us"
+
+    return target_language, target_country
+
+
+def build_localized_guidelines(
+    base_guidelines: str,
+    language: str = "English",
+    country_code: str = "us",
+    site: str | None = None,
+    localize_idioms: bool = True,
+) -> str:
+    """Enrich base editorial guidelines with regional idiom adaptation and native language instructions."""
+    result = (base_guidelines or "").strip()
+    if not localize_idioms:
+        return result[:2000]
+
+    profile = resolve_fleet_profile(site or "") if site else None
+    locale_key = (country_code or "").lower()
+    if locale_key not in LOCALIZATION_PROFILES and profile and profile.get("locale_region"):
+        locale_key = str(profile["locale_region"]).lower()
+    if locale_key not in LOCALIZATION_PROFILES:
+        lang_country = LANGUAGE_DEFAULT_COUNTRY_MAP.get(normalize_language_name(language), "us")
+        locale_key = lang_country
+
+    loc_info = LOCALIZATION_PROFILES.get(locale_key) or LOCALIZATION_PROFILES["us"]
+    idiom_note = loc_info["idiom_instructions"]
+
+    norm_lang = normalize_language_name(language)
+    lang_note = (
+        f"Write natively in {norm_lang} using natural local idioms, grammar, and regional search phrasing (never literal machine translation)."
+        if norm_lang != "English"
+        else ""
+    )
+
+    extra_parts = [p for p in [lang_note, idiom_note] if p and p not in result]
+    if extra_parts:
+        combined = f"{result} {' '.join(extra_parts)}".strip()
+        return combined[:2000]
+    return result[:2000]
 
 
 def run_wp_cli(alias: str, command: str | list[str], timeout: int = 45, allow_custom: bool = False) -> str:
@@ -363,8 +593,13 @@ class ContentQualityError(RuntimeError):
         self.errors = errors or []
 
 
-def validate_generated_content(html_content: str, target_word_count: int = 1500) -> list[str]:
-    """Validate that generated HTML content satisfies semantic heading structure, word count, and has no placeholder leakage."""
+def validate_generated_content(
+    html_content: str,
+    target_word_count: int = 1500,
+    language: str = "English",
+    country: str = "us",
+) -> list[str]:
+    """Validate that generated HTML content satisfies semantic heading structure, word count, cultural ethics, and has no placeholder leakage."""
     errors: list[str] = []
     if not html_content or not html_content.strip():
         return ["Content is completely empty."]
@@ -418,7 +653,7 @@ def validate_generated_content(html_content: str, target_word_count: int = 1500)
 
     # Broadened placeholder check
     bracket_placeholders = re.findall(
-        r"\[(City|Country|Name|Insert|Destination|State|Region|URL|Link|Date|Phone|Company|Brand|TODO|TBD|X)\]",
+        r"\[(City|Country|Name|Insert|Destination|State|Region|URL|Link|Date|Phone|Company|Brand|TODO|TBD|X|Stadt|Land|Ciudad|País)\]",
         html_content,
         re.IGNORECASE,
     )
@@ -450,11 +685,43 @@ def validate_generated_content(html_content: str, target_word_count: int = 1500)
         "lorem ipsum",
         "here is your generated article",
         "here is an expanded version",
+        "als ki-sprachmodell",
+        "ich kann keine",
+        "como modelo de lenguaje",
+        "no puedo proporcionar",
+        "en tant que modèle de langage",
+        "come modello linguistico",
+        "als taalmodel",
+        "ως γλωσσικό μοντέλο",
     ]
     lower_html = html_content.lower()
     for phrase in ai_phrases:
         if phrase in lower_html:
             errors.append(f"Detected prohibited AI boilerplate / placeholder phrase: '{phrase}'.")
+
+    # Cultural & Animal Welfare Guardrail: Absolute Donkey Transportation Ban in Greece / Santorini
+    donkey_patterns = [
+        r"\bdonkey\s+ride",
+        r"\briding\s+(?:a\s+)?donkey",
+        r"\bride\s+(?:a\s+|the\s+)?donkey",
+        r"\bdonkey\s+taxi",
+        r"\bdonkeys?\s+carrying\s+luggage",
+        r"\bdonkey\s+luggage\s+transit",
+        r"\beselreiten\b",
+        r"\bpaseo\s+en\s+burro\b",
+    ]
+    is_greek_context = (
+        (country or "").lower() == "gr"
+        or normalize_language_name(language) == "Greek"
+        or any(tok in lower_html for tok in ["santorini", "greece", "fira", "oia", "cyclades", "mykonos", "griechenland"])
+    )
+    if is_greek_context:
+        for pat in donkey_patterns:
+            if re.search(pat, lower_html, re.IGNORECASE):
+                errors.append(
+                    "Cultural & ethical policy violation: Content depicts or recommends donkey riding / donkey luggage transit in Greece."
+                )
+                break
 
     return errors
 
@@ -890,6 +1157,8 @@ class WordPressFleetManager:
         writing_style_id: int | None = None,
         brand_id: int | None = None,
         guidelines: str | None = None,
+        language: str | None = None,
+        localize_idioms: bool = True,
         dry_run: bool = False,
         stage_draft: bool = False,
         backup_dir: Path | str | None = None,
@@ -915,6 +1184,13 @@ class WordPressFleetManager:
         state = meta.get("state_name_full") or ""
         admin_edit_url = get_wp_admin_edit_url(site, post_id)
 
+        target_language, target_country_code = resolve_site_language_and_country(
+            site=site,
+            post_country=country,
+            language_override=language,
+            post_meta_language=meta.get("language"),
+        )
+
         # Construct optimized Katteb generation topic based on post type
         if pt == "destinations":
             loc_parts = [p for p in [city, state, country] if p]
@@ -935,8 +1211,13 @@ class WordPressFleetManager:
             topic = title
             default_guidelines = f"Expand this article on '{title}' into a comprehensive, highly engaging 2026 guide with actionable advice."
 
-        final_guidelines = guidelines or default_guidelines
-        target_country_code = resolve_country_code(country)
+        final_guidelines = build_localized_guidelines(
+            base_guidelines=guidelines or default_guidelines,
+            language=target_language,
+            country_code=target_country_code,
+            site=site,
+            localize_idioms=localize_idioms,
+        )
         final_enhancements = enhancements or ["tldr", "key_takeaways", "faq"]
 
         # 3. True Dry-Run: Return simulation result without Katteb API calls or WordPress mutations
@@ -947,6 +1228,7 @@ class WordPressFleetManager:
                 "post_id": post_id,
                 "title": title,
                 "topic": topic,
+                "language": target_language,
                 "country": target_country_code,
                 "word_count": word_count,
                 "previous_word_count": post["word_count"],
@@ -966,7 +1248,9 @@ class WordPressFleetManager:
             logger.warning("Failed to save pre-mutation backup snapshot for post %s: %s", post_id, bkp_err)
 
         if on_status:
-            on_status(f"Generating article for post #{post_id} ('{topic}') via Katteb API...")
+            on_status(
+                f"Generating article for post #{post_id} ('{topic}', lang={target_language}, country={target_country_code}) via Katteb API..."
+            )
 
         # 5. Generate via Katteb API and update WordPress with full telemetry tracking
         import time
@@ -977,7 +1261,7 @@ class WordPressFleetManager:
         try:
             article_res: ArticleGetResponse = self.queue.generate_and_wait(
                 topic=topic,
-                language="English",
+                language=target_language,
                 country=target_country_code,
                 word_count=word_count,
                 brand_id=brand_id,
@@ -1002,8 +1286,13 @@ class WordPressFleetManager:
             if is_err:
                 raise RuntimeError(f"Katteb generation returned an error payload: {err_msg}")
 
-            # 7. Quality Gate: validate heading hierarchy, word count, and placeholder tokens
-            val_errors = validate_generated_content(new_html, target_word_count=word_count)
+            # 7. Quality Gate: validate heading hierarchy, word count, cultural ethics, and placeholder tokens
+            val_errors = validate_generated_content(
+                new_html,
+                target_word_count=word_count,
+                language=target_language,
+                country=target_country_code,
+            )
             if val_errors:
                 err_msg = "; ".join(val_errors)
                 raise ContentQualityError(
@@ -1097,6 +1386,8 @@ class WordPressFleetManager:
                         "site": site,
                         "post_id": post_id,
                         "title": title,
+                        "language": target_language,
+                        "country": target_country_code,
                         "previous_word_count": post.get("word_count", 0),
                         "new_word_count": post.get("word_count", 0),
                         "words_generated": 0,
@@ -1123,6 +1414,8 @@ class WordPressFleetManager:
             "success": True,
             "post_id": post_id,
             "title": title,
+            "language": target_language,
+            "country": target_country_code,
             "previous_word_count": post["word_count"],
             "new_word_count": wp_res.get("new_word_count") if isinstance(wp_res, dict) else article_res.word_count,
             "job_id": article_res.job_id,
@@ -1145,6 +1438,8 @@ class WordPressFleetManager:
                     "site": site,
                     "post_id": post_id,
                     "title": title,
+                    "language": target_language,
+                    "country": target_country_code,
                     "previous_word_count": res_dict["previous_word_count"],
                     "new_word_count": res_dict["new_word_count"],
                     "words_generated": max(

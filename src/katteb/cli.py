@@ -506,10 +506,25 @@ def wp_audit_low_words(ctx: click.Context, site: str, threshold: int, post_type:
 @click.option("--site", "-s", default="destinations-ai", help="WP alias (default: destinations-ai)")
 @click.option("--id", "-i", "post_id", required=True, type=int, help="WordPress Post ID to expand")
 @click.option("--words", "-w", default=1500, type=int, help="Target word count (default: 1500)")
+@click.option("--language", "-l", default=None, help="Target language (e.g. English, German, Greek, Spanish, French)")
+@click.option(
+    "--localize-idioms/--no-localize-idioms",
+    default=True,
+    help="Inject regional idioms and cultural terminology into guidelines",
+)
 @click.option("--stage-draft", is_flag=True, help="Stage expanded content as a WordPress draft (post_status=draft)")
 @click.option("--dry-run", is_flag=True, help="Preview generation prompt and parameters without calling Katteb")
 @click.pass_context
-def wp_expand_post(ctx: click.Context, site: str, post_id: int, words: int, stage_draft: bool, dry_run: bool):
+def wp_expand_post(
+    ctx: click.Context,
+    site: str,
+    post_id: int,
+    words: int,
+    language: str | None,
+    localize_idioms: bool,
+    stage_draft: bool,
+    dry_run: bool,
+):
     """Generate expanded AI content via Katteb and update WordPress post."""
     client = get_client(ctx)
     wp_mgr = WordPressFleetManager(client)
@@ -526,6 +541,10 @@ def wp_expand_post(ctx: click.Context, site: str, post_id: int, words: int, stag
         "dry_run": dry_run,
         "on_status": on_status,
     }
+    if language:
+        expand_kwargs["language"] = language
+    if not localize_idioms:
+        expand_kwargs["localize_idioms"] = False
     if stage_draft:
         expand_kwargs["stage_draft"] = True
 
@@ -537,7 +556,9 @@ def wp_expand_post(ctx: click.Context, site: str, post_id: int, words: int, stag
         console.print("\n[bold yellow]🔍 DRY RUN PREVIEW:[/bold yellow]")
         console.print(f"Post ID: {result['post_id']} ({result['title']})")
         console.print(f"Target Topic: [cyan]{result['topic']}[/cyan]")
-        console.print(f"Country Code: {result['country']} | Target Words: {result['word_count']}")
+        console.print(
+            f"Language: {result.get('language', 'English')} | Country Code: {result['country']} | Target Words: {result['word_count']}"
+        )
         console.print(f"Enhancements: {result['enhancements']}")
         console.print(f"Guidelines: {result['guidelines']}")
         if result.get("wp_admin_edit_url"):
@@ -591,6 +612,7 @@ def wp_rollback_post(ctx: click.Context, site: str, snapshot: str, output_json: 
 @click.option("--post-type", "-p", default="destinations", help="Post type to expand (default: destinations)")
 @click.option("--limit", "-n", default=3, type=int, help="Number of lowest word count posts to expand (default: 3)")
 @click.option("--words", "-w", default=1500, type=int, help="Target word count per article")
+@click.option("--language", "-l", default=None, help="Target language override (e.g. German, Greek, Spanish)")
 @click.option("--stage-draft", is_flag=True, help="Stage expanded posts as WordPress drafts (post_status=draft)")
 @click.option("--dry-run", is_flag=True, help="Preview batch plan without executing")
 @click.option(
@@ -603,6 +625,7 @@ def wp_batch_expand(
     post_type: str,
     limit: int,
     words: int,
+    language: str | None,
     stage_draft: bool,
     dry_run: bool,
     receipt_dir: str,
@@ -645,6 +668,8 @@ def wp_batch_expand(
                 "word_count": words,
                 "on_status": None if as_json else (lambda m: console.print(f"   {m}")),
             }
+            if language:
+                expand_kwargs["language"] = language
             if stage_draft:
                 expand_kwargs["stage_draft"] = True
             res = wp_mgr.expand_and_update_post(**expand_kwargs)
@@ -690,6 +715,7 @@ def wp_batch_expand(
 @click.option("--site", help="Override site alias")
 @click.option("--post-id", type=int, help="Override post ID")
 @click.option("--words", type=int, help="Override target word count")
+@click.option("--language", help="Override target generation language")
 @click.option("--stage-draft", is_flag=True, default=None, help="Stage post update as draft (post_status=draft)")
 @click.option("--dry-run", is_flag=True, default=None, help="Run in dry-run simulation mode")
 @click.option("--receipt-dir", help="Directory to save execution receipts")
@@ -702,6 +728,7 @@ def pipeline_dispatch(
     site: str | None,
     post_id: int | None,
     words: int | None,
+    language: str | None,
     stage_draft: bool | None,
     dry_run: bool | None,
     receipt_dir: str | None,
@@ -749,6 +776,8 @@ def pipeline_dispatch(
         raw_payload["post_id"] = post_id
     if words:
         raw_payload["target_words"] = words
+    if language:
+        raw_payload["language"] = language
     if stage_draft is not None:
         raw_payload["stage_draft"] = stage_draft
     if dry_run is not None:

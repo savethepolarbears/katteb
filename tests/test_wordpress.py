@@ -572,3 +572,154 @@ def test_rollback_post_restores_snapshot(wp_manager, tmp_path):
         assert res["wp_admin_edit_url"] == "https://everythingaboutgermany.com/wp-admin/post.php?post=909&action=edit"
         mock_eval.assert_called_once()
 
+
+def test_resolve_site_language_and_country():
+    from katteb.wordpress import normalize_language_name, resolve_site_language_and_country
+
+    assert normalize_language_name("de") == "German"
+    assert normalize_language_name("es") == "Spanish"
+    assert normalize_language_name("fr") == "French"
+    assert normalize_language_name("el") == "Greek"
+    assert normalize_language_name("nl") == "Dutch"
+    assert normalize_language_name("it") == "Italian"
+    assert normalize_language_name("English") == "English"
+
+    assert resolve_site_language_and_country("santorinisecrets") == ("English", "gr")
+    assert resolve_site_language_and_country("everythingaboutgermany") == ("English", "de")
+    assert resolve_site_language_and_country("everythingaboutgermany.de") == ("German", "de")
+    assert resolve_site_language_and_country("paristopten") == ("English", "fr")
+    assert resolve_site_language_and_country("lovinglifeinspain") == ("English", "es")
+    assert resolve_site_language_and_country("amsterdamlocalgems") == ("English", "nl")
+    assert resolve_site_language_and_country("parkervillas") == ("English", "it")
+    assert resolve_site_language_and_country("viatravelers", language_override="de") == ("German", "de")
+    assert resolve_site_language_and_country("viatravelers", post_country="es", language_override="es") == (
+        "Spanish",
+        "es",
+    )
+
+
+def test_build_localized_guidelines():
+    from katteb.wordpress import build_localized_guidelines
+
+    de_guide = build_localized_guidelines(
+        "Base guidelines.",
+        language="German",
+        country_code="de",
+        site="everythingaboutgermany",
+    )
+    assert "Deutschlandticket" in de_guide
+    assert "Euro (€)" in de_guide
+    assert "Write natively in German" in de_guide
+
+    gr_guide = build_localized_guidelines(
+        "Santorini guide.",
+        language="English",
+        country_code="gr",
+        site="santorinisecrets",
+    )
+    assert "donkey riding or donkey luggage transit" in gr_guide.lower()
+    assert "KTEL" in gr_guide
+
+    disabled_guide = build_localized_guidelines(
+        "Base guidelines.",
+        language="German",
+        country_code="de",
+        site="everythingaboutgermany",
+        localize_idioms=False,
+    )
+    assert disabled_guide == "Base guidelines."
+
+
+def test_validate_generated_content_multilingual_and_donkey_ban():
+    from katteb.wordpress import validate_generated_content
+
+    errs_de = validate_generated_content(
+        "<h2>Einführung</h2><p>Als KI-Sprachmodell kann ich keine aktuellen Preise nennen.</p>",
+        target_word_count=100,
+        language="German",
+        country="de",
+    )
+    assert any("als ki-sprachmodell" in e.lower() for e in errs_de)
+
+    errs_es = validate_generated_content(
+        "<h2>Introducción</h2><p>Como modelo de lenguaje, no tengo acceso en tiempo real.</p>",
+        target_word_count=100,
+        language="Spanish",
+        country="es",
+    )
+    assert any("como modelo de lenguaje" in e.lower() for e in errs_es)
+
+    errs_donkey_en = validate_generated_content(
+        "<h2>Getting to Fira</h2><p>Many tourists take a donkey ride up the steps from the Old Port in Santorini.</p>",
+        target_word_count=100,
+        language="English",
+        country="gr",
+    )
+    assert any("donkey" in e.lower() for e in errs_donkey_en)
+
+    errs_donkey_de = validate_generated_content(
+        "<h2>Anreise in Santorini</h2><p>Vermeiden Sie das Eselreiten in Fira nicht.</p>",
+        target_word_count=100,
+        language="German",
+        country="gr",
+    )
+    assert any("donkey" in e.lower() for e in errs_donkey_de)
+
+
+def test_expand_and_update_post_passes_language_and_localized_guidelines(wp_manager):
+    mock_post = {
+        "id": 610,
+        "title": "München Sehenswürdigkeiten",
+        "post_type": "destinations",
+        "status": "publish",
+        "word_count": 300,
+        "content": "<p>Kurzer Text über München.</p>",
+        "meta": {},
+    }
+    valid_de_html = (
+        "<h2>Die besten Sehenswürdigkeiten in München</h2><p>"
+        + " ".join(["Der Marienplatz bildet das historische Herz der bayerischen Landeshauptstadt München."] * 35)
+        + "</p>"
+        "<h2>Anreise mit der S-Bahn und U-Bahn</h2><p>"
+        + " ".join(["Mit dem Deutschlandticket und der DB Navigator App fahren Sie bequem durch die Stadt."] * 35)
+        + "</p>"
+        "<h3>Praktische Tipps für Besucher</h3><p>"
+        + " ".join(["Besuchen Sie den Viktualienmarkt am Vormittag für frische Spezialitäten."] * 30)
+        + "</p>"
+    )
+    mock_article = ArticleGetResponse(
+        success=True,
+        job_id=611,
+        topic="München Sehenswürdigkeiten",
+        status="completed",
+        content_html=valid_de_html,
+        word_count=1550,
+        credits_charged=1550,
+    )
+
+    with (
+        patch.object(wp_manager, "get_post_details", return_value=mock_post),
+        patch.object(wp_manager.queue, "generate_and_wait", return_value=mock_article) as mock_gen,
+        patch(
+            "katteb.wordpress.run_wp_eval",
+            return_value={"success": True, "new_word_count": 1550, "post_status": "publish"},
+        ),
+    ):
+        res = wp_manager.expand_and_update_post(
+            site="everythingaboutgermany",
+            post_id=610,
+            word_count=1500,
+            language="de",
+            localize_idioms=True,
+        )
+
+    assert res["success"] is True
+    assert res["language"] == "German"
+    assert res["country"] == "de"
+    call_kwargs = mock_gen.call_args.kwargs
+    assert call_kwargs["language"] == "German"
+    assert call_kwargs["country"] == "de"
+    assert "Deutschlandticket" in call_kwargs["guidelines"]
+
+
+
