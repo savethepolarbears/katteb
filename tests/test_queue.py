@@ -76,3 +76,49 @@ def test_queue_generate_and_wait(queue_manager):
         assert res.job_id == 103
         assert res.status == "completed"
         assert res.word_count == 2000
+
+
+def test_queue_preserves_credits_charged(queue_manager):
+    mock_gen = ArticleGenerateResponse(success=True, job_id=205, credits_charged=1850, status="pending")
+    mock_get = ArticleGetResponse(
+        success=True,
+        job_id=205,
+        topic="Athens Guide",
+        status="completed",
+        word_count=1800,
+        credits_charged=None,
+    )
+    with (
+        patch.object(queue_manager.client, "generate_article", return_value=mock_gen),
+        patch.object(queue_manager.client, "poll_article_until_complete", return_value=mock_get),
+    ):
+        res = queue_manager.generate_and_wait(topic="Athens Guide", word_count=1800)
+        assert res.credits_charged == 1850
+        assert queue_manager.last_credits_charged == 1850
+
+
+def test_queue_seo_429_dispatches_poll_seo(queue_manager):
+    from katteb.models import SEOAnalyzeResponse, SEOGetResponse
+
+    rate_err = KattebRateLimitError(
+        message="Active SEO job running",
+        retry_after=1,
+        active_job_id=777,
+        active_job_type="seo",
+    )
+    mock_seo_submit = SEOAnalyzeResponse(success=True, job_id=778, credits_charged=50, status="pending")
+    mock_seo_done = SEOGetResponse(success=True, job_id=778, status="completed", score=88.0)
+
+    with (
+        patch.object(queue_manager.client, "analyze_seo", side_effect=[rate_err, mock_seo_submit]),
+        patch.object(
+            queue_manager.client, "poll_seo_until_complete", side_effect=[mock_seo_done, mock_seo_done]
+        ) as mock_poll_seo,
+        patch.object(queue_manager.client, "poll_article_until_complete") as mock_poll_article,
+    ):
+        res = queue_manager.analyze_seo_and_wait(type="url", value="https://viatravelers.com")
+        assert res.job_id == 778
+        assert res.score == 88.0
+        assert res.credits_charged == 50
+        assert mock_poll_seo.call_count == 2
+        mock_poll_article.assert_not_called()

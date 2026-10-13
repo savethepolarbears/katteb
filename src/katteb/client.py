@@ -365,6 +365,27 @@ class KattebClient:
         data = self._request("GET", "seo/get", params={"id": job_id})
         return SEOGetResponse.model_validate(data)
 
+    def poll_seo_until_complete(
+        self,
+        job_id: int,
+        interval_seconds: int = 10,
+        timeout_seconds: int = 600,
+        on_progress: Any | None = None,
+    ) -> SEOGetResponse:
+        """Poll seo/get until status is 'completed' or 'failed'."""
+        start_time = time.time()
+        while time.time() - start_time < timeout_seconds:
+            res = self.get_seo(job_id)
+            if on_progress:
+                on_progress(res)
+            if res.status == "completed":
+                return res
+            if res.status in ("failed", "cancelled"):
+                raise KattebAPIError(f"SEO analysis {res.status}: {res.error_detail or res.error}")
+            (self.sleeper or time.sleep)(interval_seconds)
+
+        raise KattebAPIError(f"SEO analysis timed out after {timeout_seconds}s (Job #{job_id})")
+
     # -------------------------------------------------------------------------
     # Humanizer & Fact-Checking Tools
     # -------------------------------------------------------------------------

@@ -506,9 +506,29 @@ def wp_audit_low_words(ctx: click.Context, site: str, threshold: int, post_type:
 @click.option("--site", "-s", default="destinations-ai", help="WP alias (default: destinations-ai)")
 @click.option("--id", "-i", "post_id", required=True, type=int, help="WordPress Post ID to expand")
 @click.option("--words", "-w", default=1500, type=int, help="Target word count (default: 1500)")
+@click.option("--language", "-l", default=None, help="Target language (e.g. English, German, Greek, Spanish, French)")
+@click.option(
+    "--localize-idioms/--no-localize-idioms",
+    default=True,
+    help="Inject regional idioms and cultural terminology into guidelines",
+)
+@click.option("--inject-dam-media", is_flag=True, help="Inject authentic TravelMediaDAM <figure> blocks into HTML")
+@click.option("--dam-catalog", default=None, help="Optional TravelMediaDAM catalog CSV/JSON path override")
+@click.option("--stage-draft", is_flag=True, help="Stage expanded content as a WordPress draft (post_status=draft)")
 @click.option("--dry-run", is_flag=True, help="Preview generation prompt and parameters without calling Katteb")
 @click.pass_context
-def wp_expand_post(ctx: click.Context, site: str, post_id: int, words: int, dry_run: bool):
+def wp_expand_post(
+    ctx: click.Context,
+    site: str,
+    post_id: int,
+    words: int,
+    language: str | None,
+    localize_idioms: bool,
+    inject_dam_media: bool,
+    dam_catalog: str | None,
+    stage_draft: bool,
+    dry_run: bool,
+):
     """Generate expanded AI content via Katteb and update WordPress post."""
     client = get_client(ctx)
     wp_mgr = WordPressFleetManager(client)
@@ -518,13 +538,25 @@ def wp_expand_post(ctx: click.Context, site: str, post_id: int, words: int, dry_
         if not as_json:
             console.print(f"ℹ️ {msg}")
 
-    result = wp_mgr.expand_and_update_post(
-        site=site,
-        post_id=post_id,
-        word_count=words,
-        dry_run=dry_run,
-        on_status=on_status,
-    )
+    expand_kwargs: dict[str, Any] = {
+        "site": site,
+        "post_id": post_id,
+        "word_count": words,
+        "dry_run": dry_run,
+        "on_status": on_status,
+    }
+    if language:
+        expand_kwargs["language"] = language
+    if not localize_idioms:
+        expand_kwargs["localize_idioms"] = False
+    if inject_dam_media:
+        expand_kwargs["inject_dam_media"] = True
+        if dam_catalog:
+            expand_kwargs["dam_catalog_path"] = dam_catalog
+    if stage_draft:
+        expand_kwargs["stage_draft"] = True
+
+    result = wp_mgr.expand_and_update_post(**expand_kwargs)
 
     if as_json:
         print_json(result)
@@ -532,9 +564,13 @@ def wp_expand_post(ctx: click.Context, site: str, post_id: int, words: int, dry_
         console.print("\n[bold yellow]🔍 DRY RUN PREVIEW:[/bold yellow]")
         console.print(f"Post ID: {result['post_id']} ({result['title']})")
         console.print(f"Target Topic: [cyan]{result['topic']}[/cyan]")
-        console.print(f"Country Code: {result['country']} | Target Words: {result['word_count']}")
+        console.print(
+            f"Language: {result.get('language', 'English')} | Country Code: {result['country']} | Target Words: {result['word_count']}"
+        )
         console.print(f"Enhancements: {result['enhancements']}")
         console.print(f"Guidelines: {result['guidelines']}")
+        if result.get("wp_admin_edit_url"):
+            console.print(f"WP Admin Edit Link: [underline cyan]{result['wp_admin_edit_url']}[/underline cyan]")
     else:
         console.print("\n🎉 [bold green]Post Successfully Expanded & Updated in WordPress![/bold green]")
         console.print(f"Post ID: {result['post_id']} | Title: {result['title']}")
@@ -543,6 +579,40 @@ def wp_expand_post(ctx: click.Context, site: str, post_id: int, words: int, dry_
         )
         console.print(f"SEO Title: {result['meta_title']}")
         console.print(f"SEO Description: {result['meta_description']}")
+        if result.get("backup_path"):
+            console.print(f"Backup Snapshot: [dim]{result['backup_path']}[/dim]")
+        if result.get("wp_admin_edit_url"):
+            console.print(f"WP Admin Edit Link: [underline cyan]{result['wp_admin_edit_url']}[/underline cyan]")
+
+
+@wp.command("rollback-post")
+@click.option("--site", "-s", default="destinations-ai", help="WP alias (default: destinations-ai)")
+@click.option("--snapshot", "-f", required=True, type=click.Path(exists=True), help="Path to backup snapshot JSON")
+@click.option("--json", "output_json", is_flag=True, help="Output JSON format")
+@click.pass_context
+def wp_rollback_post(ctx: click.Context, site: str, snapshot: str, output_json: bool):
+    """Restore a WordPress post from a pre-mutation backup snapshot."""
+    as_json = ctx.obj.get("as_json", False) or output_json
+    wp_mgr = WordPressFleetManager(KattebClient(api_key=ctx.obj.get("api_key") or "offline_rollback"))
+
+    try:
+        res = wp_mgr.rollback_post(site=site, snapshot_path=snapshot)
+    except Exception as exc:
+        if as_json:
+            print_json({"success": False, "site": site, "snapshot": snapshot, "error": str(exc)})
+        else:
+            console.print(f"❌ [bold red]Rollback failed:[/bold red] {exc}")
+        sys.exit(1)
+
+    if as_json:
+        print_json(res)
+    else:
+        console.print(
+            f"✅ [bold green]Post #{res['post_id']} Restored on {site}![/bold green] "
+            f"({res.get('restored_word_count', 0)} words, status={res.get('restored_status')})"
+        )
+        if res.get("wp_admin_edit_url"):
+            console.print(f"WP Admin Edit Link: [underline cyan]{res['wp_admin_edit_url']}[/underline cyan]")
 
 
 @wp.command("batch-expand")
@@ -550,13 +620,23 @@ def wp_expand_post(ctx: click.Context, site: str, post_id: int, words: int, dry_
 @click.option("--post-type", "-p", default="destinations", help="Post type to expand (default: destinations)")
 @click.option("--limit", "-n", default=3, type=int, help="Number of lowest word count posts to expand (default: 3)")
 @click.option("--words", "-w", default=1500, type=int, help="Target word count per article")
+@click.option("--language", "-l", default=None, help="Target language override (e.g. German, Greek, Spanish)")
+@click.option("--stage-draft", is_flag=True, help="Stage expanded posts as WordPress drafts (post_status=draft)")
 @click.option("--dry-run", is_flag=True, help="Preview batch plan without executing")
 @click.option(
     "--receipt-dir", "-r", default="receipts", help="Directory to save markdown audit receipt (default: receipts)"
 )
 @click.pass_context
 def wp_batch_expand(
-    ctx: click.Context, site: str, post_type: str, limit: int, words: int, dry_run: bool, receipt_dir: str
+    ctx: click.Context,
+    site: str,
+    post_type: str,
+    limit: int,
+    words: int,
+    language: str | None,
+    stage_draft: bool,
+    dry_run: bool,
+    receipt_dir: str,
 ):
     """Batch expand the lowest word count posts for a post type on WordPress."""
     client = get_client(ctx)
@@ -590,12 +670,17 @@ def wp_batch_expand(
         if not as_json:
             console.print(f"\n[{idx}/{len(targets)}] Processing Post #{t['id']}: {t['title']}...")
         try:
-            res = wp_mgr.expand_and_update_post(
-                site=site,
-                post_id=t["id"],
-                word_count=words,
-                on_status=None if as_json else (lambda m: console.print(f"   {m}")),
-            )
+            expand_kwargs: dict[str, Any] = {
+                "site": site,
+                "post_id": t["id"],
+                "word_count": words,
+                "on_status": None if as_json else (lambda m: console.print(f"   {m}")),
+            }
+            if language:
+                expand_kwargs["language"] = language
+            if stage_draft:
+                expand_kwargs["stage_draft"] = True
+            res = wp_mgr.expand_and_update_post(**expand_kwargs)
             results.append(res)
             if not as_json:
                 console.print(
@@ -632,12 +717,130 @@ def wp_batch_expand(
             console.print(f"📄 Audit receipt written to: [bold cyan]{receipt_file}[/bold cyan]")
 
 
+@wp.command("striking-distance")
+@click.option("--site", "-s", default="viatravelers", help="WP fleet site alias (default: viatravelers)")
+@click.option("--days", "-d", default=28, type=int, help="Trailing GSC lookback window in days (default: 28)")
+@click.option("--min-impressions", default=50, type=int, help="Minimum impressions threshold (default: 50)")
+@click.option("--limit", "-n", default=25, type=int, help="Maximum striking-distance queries to return")
+@click.option("--input-file", type=click.Path(exists=True), help="Optional offline GSC analytics JSON file")
+@click.option("--json", "output_json", is_flag=True, help="Output JSON format")
+@click.pass_context
+def wp_striking_distance(
+    ctx: click.Context,
+    site: str,
+    days: int,
+    min_impressions: int,
+    limit: int,
+    input_file: str | None,
+    output_json: bool,
+):
+    """Detect Google Search Console striking-distance queries (pos 4.0-15.0, impressions >= 50)."""
+    from katteb.gsc_feedback import GSCFeedbackAuditor, format_refresh_queue_records
+
+    as_json = ctx.obj.get("as_json", False) or output_json
+    auditor = GSCFeedbackAuditor()
+    try:
+        opportunities = auditor.detect_striking_distance_queries(
+            site=site,
+            days=days,
+            min_impressions=min_impressions,
+            limit=limit,
+            input_file=input_file,
+        )
+        queue_payload = format_refresh_queue_records(site, opportunities)
+    except Exception as exc:
+        if as_json:
+            print_json({"success": False, "site": site, "error": str(exc)})
+        else:
+            console.print(f"❌ [bold red]GSC striking-distance detection failed:[/bold red] {exc}")
+        sys.exit(1)
+
+    if as_json:
+        print_json(
+            {
+                "success": True,
+                "site": site,
+                "days": days,
+                "count": len(opportunities),
+                "opportunities": opportunities,
+                "refresh_queue": queue_payload,
+            }
+        )
+        return
+
+    if not opportunities:
+        console.print(f"[yellow]No striking-distance queries found for {site} over trailing {days} days.[/yellow]")
+        return
+
+    table = Table(title=f"🎯 GSC Striking-Distance Opportunities: {site} ({len(opportunities)})", show_header=True)
+    table.add_column("Query", style="bold cyan")
+    table.add_column("Pos", style="yellow")
+    table.add_column("Impr", style="green")
+    table.add_column("CTR", style="magenta")
+    table.add_column("Score", style="bold")
+    for opp in opportunities:
+        table.add_row(
+            opp["query"],
+            f"{opp['position']:.1f}",
+            f"{opp['impressions']:,}",
+            f"{opp['ctr'] * 100:.2f}%",
+            f"{opp['opportunity_score']:,.1f}",
+        )
+    console.print(table)
+
+
+@wp.command("audit-impact")
+@click.option("--site", "-s", default=None, help="Filter by WP fleet site alias")
+@click.option("--min-days", default=30, type=int, help="Minimum age in days since post expansion (default: 30)")
+@click.option("--log-file", type=click.Path(exists=True), help="Custom telemetry JSONL log path")
+@click.option("--gsc-file", type=click.Path(exists=True), help="Optional offline GSC analytics JSON file")
+@click.option("--json", "output_json", is_flag=True, help="Output JSON format")
+@click.pass_context
+def wp_audit_impact(
+    ctx: click.Context,
+    site: str | None,
+    min_days: int,
+    log_file: str | None,
+    gsc_file: str | None,
+    output_json: bool,
+):
+    """Audit 30-day post-expansion SEO impact and queue low-CTR posts for refresh."""
+    from katteb.gsc_feedback import GSCFeedbackAuditor
+
+    as_json = ctx.obj.get("as_json", False) or output_json
+    auditor = GSCFeedbackAuditor()
+    try:
+        summary = auditor.audit_expanded_posts_impact(
+            site=site,
+            min_days_age=min_days,
+            log_path=log_file,
+            input_file=gsc_file,
+        )
+    except Exception as exc:
+        if as_json:
+            print_json({"success": False, "site": site, "error": str(exc)})
+        else:
+            console.print(f"❌ [bold red]Impact audit failed:[/bold red] {exc}")
+        sys.exit(1)
+
+    if as_json:
+        print_json(summary)
+        return
+
+    console.print(
+        f"📈 [bold green]30-Day Impact Audit Complete:[/bold green] "
+        f"{summary['audited_count']} expanded posts audited, {summary['needs_refresh_count']} flagged for refresh."
+    )
+
+
 @cli.command("pipeline-dispatch")
 @click.option("--stdin", "use_stdin", is_flag=True, help="Read JSON event payload from standard input")
 @click.option("-f", "--file", "payload_file", type=click.Path(exists=True), help="Path to JSON event payload file")
 @click.option("--site", help="Override site alias")
 @click.option("--post-id", type=int, help="Override post ID")
 @click.option("--words", type=int, help="Override target word count")
+@click.option("--language", help="Override target generation language")
+@click.option("--stage-draft", is_flag=True, default=None, help="Stage post update as draft (post_status=draft)")
 @click.option("--dry-run", is_flag=True, default=None, help="Run in dry-run simulation mode")
 @click.option("--receipt-dir", help="Directory to save execution receipts")
 @click.option("--json", "output_json", is_flag=True, help="Output JSON format")
@@ -649,6 +852,8 @@ def pipeline_dispatch(
     site: str | None,
     post_id: int | None,
     words: int | None,
+    language: str | None,
+    stage_draft: bool | None,
     dry_run: bool | None,
     receipt_dir: str | None,
     output_json: bool = False,
@@ -695,6 +900,10 @@ def pipeline_dispatch(
         raw_payload["post_id"] = post_id
     if words:
         raw_payload["target_words"] = words
+    if language:
+        raw_payload["language"] = language
+    if stage_draft is not None:
+        raw_payload["stage_draft"] = stage_draft
     if dry_run is not None:
         raw_payload["dry_run"] = dry_run
     if receipt_dir:
@@ -723,6 +932,112 @@ def pipeline_dispatch(
 
     if not result.get("success"):
         sys.exit(1)
+
+
+# =============================================================================
+# TravelMediaDAM Commands
+# =============================================================================
+
+
+@cli.group()
+def dam():
+    """Authentic TravelMediaDAM asset discovery and two-phase web optimization."""
+    pass
+
+
+@dam.command("search")
+@click.option("--city", default="", help="City name to match")
+@click.option("--country", default="", help="Country name or ISO code to match")
+@click.option("--topic", default="", help="Topic keywords to match")
+@click.option("--catalog", default=None, help="Custom TravelMediaDAM CSV/JSON catalog path")
+@click.option("--limit", "-n", default=5, type=int, help="Maximum matching assets to return")
+@click.option("--json", "output_json", is_flag=True, help="Output JSON format")
+@click.pass_context
+def dam_search(
+    ctx: click.Context,
+    city: str,
+    country: str,
+    topic: str,
+    catalog: str | None,
+    limit: int,
+    output_json: bool,
+):
+    """Search authentic TravelMediaDAM assets with SHA-256 deduplication and donkey ban filtering."""
+    from katteb.dam import TravelMediaDAMResolver
+
+    as_json = ctx.obj.get("as_json", False) or output_json
+    resolver = TravelMediaDAMResolver(catalog_path=catalog)
+    items = resolver.query_media(city=city, country=country, topic=topic, limit=limit)
+    serialized = [item.model_dump() for item in items]
+
+    if as_json:
+        print_json({"count": len(serialized), "items": serialized})
+        return
+
+    if not items:
+        console.print("[yellow]No matching TravelMediaDAM assets found (or volume offline).[/yellow]")
+        return
+
+    table = Table(title=f"📷 TravelMediaDAM Matches ({len(items)})", show_header=True)
+    table.add_column("Asset ID", style="cyan")
+    table.add_column("City / Country", style="green")
+    table.add_column("Title", style="bold")
+    table.add_column("File / URL", style="dim")
+    for item in items:
+        table.add_row(
+            item.asset_id,
+            f"{item.city}, {item.country}".strip(", "),
+            item.title,
+            item.public_url or item.file_path,
+        )
+    console.print(table)
+
+
+@dam.command("optimize")
+@click.option("--src", required=True, type=click.Path(exists=True), help="Source raw/original photo path")
+@click.option("--out-dir", required=True, type=click.Path(), help="Output directory for web-optimized JPEG")
+@click.option("--title", default="", help="Editorial title (copyright/AI tropes stripped automatically)")
+@click.option("--caption", default="", help="Visible editorial caption")
+@click.option("--city", default="", help="City metadata for IPTC injection")
+@click.option("--country", default="", help="Country metadata for IPTC injection")
+@click.option("--json", "output_json", is_flag=True, help="Output JSON format")
+@click.pass_context
+def dam_optimize(
+    ctx: click.Context,
+    src: str,
+    out_dir: str,
+    title: str,
+    caption: str,
+    city: str,
+    country: str,
+    output_json: bool,
+):
+    """Run two-phase ImageMagick + ExifTool optimization (<1MB, IPTC attribution)."""
+    from katteb.dam import optimize_media_asset
+
+    as_json = ctx.obj.get("as_json", False) or output_json
+    try:
+        res = optimize_media_asset(
+            src_path=src,
+            output_dir=out_dir,
+            title=title,
+            caption=caption,
+            city=city,
+            country=country,
+        )
+    except Exception as exc:
+        if as_json:
+            print_json({"success": False, "error": str(exc)})
+        else:
+            console.print(f"❌ [bold red]DAM optimization failed:[/bold red] {exc}")
+        sys.exit(1)
+
+    if as_json:
+        print_json(res)
+    else:
+        console.print(
+            f"✅ [bold green]Optimized DAM asset:[/bold green] {res['output_path']} ({res['bytes_size']:,} bytes)"
+        )
 
 
 # =============================================================================
