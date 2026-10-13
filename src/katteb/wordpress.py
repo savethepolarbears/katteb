@@ -1159,6 +1159,9 @@ class WordPressFleetManager:
         guidelines: str | None = None,
         language: str | None = None,
         localize_idioms: bool = True,
+        inject_dam_media: bool = False,
+        dam_catalog_path: Path | str | None = None,
+        max_dam_images: int = 3,
         dry_run: bool = False,
         stage_draft: bool = False,
         backup_dir: Path | str | None = None,
@@ -1236,6 +1239,7 @@ class WordPressFleetManager:
                 "enhancements": final_enhancements,
                 "guidelines": final_guidelines,
                 "stage_draft": stage_draft,
+                "inject_dam_media": inject_dam_media,
                 "wp_admin_edit_url": admin_edit_url,
                 "simulated": True,
             }
@@ -1257,6 +1261,7 @@ class WordPressFleetManager:
 
         start_time = time.time()
         credits_used = 0
+        dam_images_injected = 0
 
         try:
             article_res: ArticleGetResponse = self.queue.generate_and_wait(
@@ -1299,6 +1304,24 @@ class WordPressFleetManager:
                     f"Generated content for post #{post_id} failed quality gates: {err_msg}",
                     errors=val_errors,
                 )
+
+            # 7b. Optional Authentic TravelMediaDAM Figure Injection
+            if inject_dam_media:
+                from katteb.dam import TravelMediaDAMResolver, inject_dam_media_into_html
+
+                dam_resolver = TravelMediaDAMResolver(catalog_path=dam_catalog_path)
+                dam_items = dam_resolver.query_media(
+                    city=city,
+                    region=state,
+                    country=country or target_country_code,
+                    topic=title,
+                    limit=max_dam_images,
+                )
+                if dam_items:
+                    before_html = new_html
+                    new_html = inject_dam_media_into_html(new_html, dam_items, max_images=max_dam_images)
+                    if new_html != before_html:
+                        dam_images_injected = new_html.count("katteb-dam-media") - before_html.count("katteb-dam-media")
 
             # 8. Clean meta_description from stray css or tags
             meta_desc = sanitize_meta_description(meta_desc)
@@ -1420,6 +1443,7 @@ class WordPressFleetManager:
             "new_word_count": wp_res.get("new_word_count") if isinstance(wp_res, dict) else article_res.word_count,
             "job_id": article_res.job_id,
             "credits_used": credits_used,
+            "dam_images_injected": dam_images_injected,
             "meta_title": meta_title,
             "meta_description": meta_desc,
             "duration_seconds": duration,
@@ -1447,6 +1471,7 @@ class WordPressFleetManager:
                     ),
                     "credits_used": credits_used,
                     "estimated_credits": credits_used,
+                    "dam_images_injected": dam_images_injected,
                     "duration_seconds": duration,
                     "stage_draft": stage_draft,
                     "post_status": final_status,

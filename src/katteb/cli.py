@@ -512,6 +512,8 @@ def wp_audit_low_words(ctx: click.Context, site: str, threshold: int, post_type:
     default=True,
     help="Inject regional idioms and cultural terminology into guidelines",
 )
+@click.option("--inject-dam-media", is_flag=True, help="Inject authentic TravelMediaDAM <figure> blocks into HTML")
+@click.option("--dam-catalog", default=None, help="Optional TravelMediaDAM catalog CSV/JSON path override")
 @click.option("--stage-draft", is_flag=True, help="Stage expanded content as a WordPress draft (post_status=draft)")
 @click.option("--dry-run", is_flag=True, help="Preview generation prompt and parameters without calling Katteb")
 @click.pass_context
@@ -522,6 +524,8 @@ def wp_expand_post(
     words: int,
     language: str | None,
     localize_idioms: bool,
+    inject_dam_media: bool,
+    dam_catalog: str | None,
     stage_draft: bool,
     dry_run: bool,
 ):
@@ -545,6 +549,10 @@ def wp_expand_post(
         expand_kwargs["language"] = language
     if not localize_idioms:
         expand_kwargs["localize_idioms"] = False
+    if inject_dam_media:
+        expand_kwargs["inject_dam_media"] = True
+        if dam_catalog:
+            expand_kwargs["dam_catalog_path"] = dam_catalog
     if stage_draft:
         expand_kwargs["stage_draft"] = True
 
@@ -808,6 +816,112 @@ def pipeline_dispatch(
 
     if not result.get("success"):
         sys.exit(1)
+
+
+# =============================================================================
+# TravelMediaDAM Commands
+# =============================================================================
+
+
+@cli.group()
+def dam():
+    """Authentic TravelMediaDAM asset discovery and two-phase web optimization."""
+    pass
+
+
+@dam.command("search")
+@click.option("--city", default="", help="City name to match")
+@click.option("--country", default="", help="Country name or ISO code to match")
+@click.option("--topic", default="", help="Topic keywords to match")
+@click.option("--catalog", default=None, help="Custom TravelMediaDAM CSV/JSON catalog path")
+@click.option("--limit", "-n", default=5, type=int, help="Maximum matching assets to return")
+@click.option("--json", "output_json", is_flag=True, help="Output JSON format")
+@click.pass_context
+def dam_search(
+    ctx: click.Context,
+    city: str,
+    country: str,
+    topic: str,
+    catalog: str | None,
+    limit: int,
+    output_json: bool,
+):
+    """Search authentic TravelMediaDAM assets with SHA-256 deduplication and donkey ban filtering."""
+    from katteb.dam import TravelMediaDAMResolver
+
+    as_json = ctx.obj.get("as_json", False) or output_json
+    resolver = TravelMediaDAMResolver(catalog_path=catalog)
+    items = resolver.query_media(city=city, country=country, topic=topic, limit=limit)
+    serialized = [item.model_dump() for item in items]
+
+    if as_json:
+        print_json({"count": len(serialized), "items": serialized})
+        return
+
+    if not items:
+        console.print("[yellow]No matching TravelMediaDAM assets found (or volume offline).[/yellow]")
+        return
+
+    table = Table(title=f"📷 TravelMediaDAM Matches ({len(items)})", show_header=True)
+    table.add_column("Asset ID", style="cyan")
+    table.add_column("City / Country", style="green")
+    table.add_column("Title", style="bold")
+    table.add_column("File / URL", style="dim")
+    for item in items:
+        table.add_row(
+            item.asset_id,
+            f"{item.city}, {item.country}".strip(", "),
+            item.title,
+            item.public_url or item.file_path,
+        )
+    console.print(table)
+
+
+@dam.command("optimize")
+@click.option("--src", required=True, type=click.Path(exists=True), help="Source raw/original photo path")
+@click.option("--out-dir", required=True, type=click.Path(), help="Output directory for web-optimized JPEG")
+@click.option("--title", default="", help="Editorial title (copyright/AI tropes stripped automatically)")
+@click.option("--caption", default="", help="Visible editorial caption")
+@click.option("--city", default="", help="City metadata for IPTC injection")
+@click.option("--country", default="", help="Country metadata for IPTC injection")
+@click.option("--json", "output_json", is_flag=True, help="Output JSON format")
+@click.pass_context
+def dam_optimize(
+    ctx: click.Context,
+    src: str,
+    out_dir: str,
+    title: str,
+    caption: str,
+    city: str,
+    country: str,
+    output_json: bool,
+):
+    """Run two-phase ImageMagick + ExifTool optimization (<1MB, IPTC attribution)."""
+    from katteb.dam import optimize_media_asset
+
+    as_json = ctx.obj.get("as_json", False) or output_json
+    try:
+        res = optimize_media_asset(
+            src_path=src,
+            output_dir=out_dir,
+            title=title,
+            caption=caption,
+            city=city,
+            country=country,
+        )
+    except Exception as exc:
+        if as_json:
+            print_json({"success": False, "error": str(exc)})
+        else:
+            console.print(f"❌ [bold red]DAM optimization failed:[/bold red] {exc}")
+        sys.exit(1)
+
+    if as_json:
+        print_json(res)
+    else:
+        console.print(
+            f"✅ [bold green]Optimized DAM asset:[/bold green] {res['output_path']} ({res['bytes_size']:,} bytes)"
+        )
 
 
 # =============================================================================

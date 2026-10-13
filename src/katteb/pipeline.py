@@ -37,6 +37,9 @@ class PipelineEventPayload(BaseModel):
     guidelines: str | None = Field(default=None, description="Custom editorial guidelines")
     language: str | None = Field(default=None, description="Target generation language (e.g. English, German, Greek)")
     localize_idioms: bool = Field(default=True, description="Adapt regional idioms and cultural terminology")
+    inject_dam_media: bool = Field(default=False, description="Inject authentic TravelMediaDAM figure blocks into HTML")
+    dam_catalog_path: str | None = Field(default=None, description="Optional override path for TravelMediaDAM CSV/JSON")
+    max_dam_images: int = Field(default=3, ge=1, le=10, description="Maximum number of DAM figures to inject")
     brand_id: int | None = Field(default=None, description="Optional Katteb brand ID")
     writing_style_id: int | None = Field(default=None, description="Optional Katteb writing style ID")
     dry_run: bool = Field(default=False, description="Dry run simulation mode")
@@ -152,6 +155,11 @@ def process_pipeline_event(
             expand_kwargs["localize_idioms"] = False
         if validated.stage_draft:
             expand_kwargs["stage_draft"] = True
+        if validated.inject_dam_media:
+            expand_kwargs["inject_dam_media"] = True
+            expand_kwargs["max_dam_images"] = validated.max_dam_images
+            if validated.dam_catalog_path:
+                expand_kwargs["dam_catalog_path"] = validated.dam_catalog_path
 
         res = manager.expand_and_update_post(**expand_kwargs)
 
@@ -186,6 +194,7 @@ def process_pipeline_event(
             "old_word_count": res.get("old_word_count") or res.get("previous_word_count") or res.get("current_word_count"),
             "new_word_count": res.get("new_word_count"),
             "credits_used": res.get("credits_used"),
+            "dam_images_injected": res.get("dam_images_injected", 0),
             "meta_description": res.get("meta_description"),
             "backup_path": res.get("backup_path"),
             "wp_admin_edit_url": res.get("wp_admin_edit_url"),
