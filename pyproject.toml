@@ -103,6 +103,7 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
+pythonpath = ["src"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-p no:recording -v --cov=katteb --cov-report=term-missing"

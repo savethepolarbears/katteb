@@ -266,3 +266,27 @@ def test_client_additional_api_methods(client):
     with patch.object(client.session, "request", return_value=mock_resp):
         res = client.verify_fact("Water boils at 100C")
         assert res.verdict == "TRUE"
+
+
+def test_poll_seo_until_complete_success(client):
+    from katteb.models import SEOGetResponse
+
+    pending = SEOGetResponse(success=True, job_id=55, status="processing", score=None)
+    done = SEOGetResponse(success=True, job_id=55, status="completed", score=94.5, keyword="santorini")
+
+    progress_calls = []
+    with patch.object(client, "get_seo", side_effect=[pending, done]), patch("time.sleep"):
+        res = client.poll_seo_until_complete(55, interval_seconds=1, timeout_seconds=30, on_progress=progress_calls.append)
+        assert res.status == "completed"
+        assert res.score == 94.5
+        assert len(progress_calls) == 2
+
+
+def test_poll_seo_until_complete_failure(client):
+    from katteb.client import KattebAPIError
+    from katteb.models import SEOGetResponse
+
+    failed = SEOGetResponse(success=False, job_id=56, status="failed", error="Invalid target URL")
+    with patch.object(client, "get_seo", return_value=failed), pytest.raises(KattebAPIError, match="SEO analysis failed"):
+        client.poll_seo_until_complete(56, interval_seconds=1, timeout_seconds=10)
+

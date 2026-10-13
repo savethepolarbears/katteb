@@ -59,6 +59,7 @@ class ArticleGetResponse(BaseModel):
     meta_title: str | None = None
     meta_description: str | None = None
     word_count: int | None = None
+    credits_charged: int | None = None
     error_detail: str | None = None
     error: str | None = None
 
@@ -116,6 +117,8 @@ class SEOGetResponse(BaseModel):
     score: float | None = None
     data: dict[str, Any] | None = None
     recommendations: list[dict[str, Any]] | None = None
+    credits_charged: int | None = None
+    error_detail: str | None = None
     error: str | None = None
 
 

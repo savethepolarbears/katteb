@@ -17,5 +17,10 @@
     "enabled": true,
     "build_timeout": 300,
     "watch_interval": 30
+  },
+  "mempalace": {
+    "enabled": true,
+    "capture_artifacts": true,
+    "wing": "katteb"
   }
 }

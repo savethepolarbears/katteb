@@ -266,3 +266,36 @@ def test_log_telemetry_concurrent_writes(tmp_path: Path):
     assert len(events) == total_writers
     worker_ids = {e["worker_id"] for e in events}
     assert worker_ids == set(range(total_writers))
+
+
+def test_get_telemetry_summary_estimated_credits_fallback(tmp_path: Path):
+    log_file = tmp_path / "legacy_credits.jsonl"
+    log_telemetry_event(
+        "post_expansion",
+        {
+            "site": "destinations-ai",
+            "post_id": 10,
+            "success": True,
+            "words_generated": 1200,
+            "estimated_credits": 15,
+            "duration_seconds": 4.0,
+        },
+        log_path=log_file,
+    )
+    log_telemetry_event(
+        "post_expansion",
+        {
+            "site": "destinations-ai",
+            "post_id": 11,
+            "success": True,
+            "words_generated": 1500,
+            "credits_used": 1605,
+            "estimated_credits": 1,
+            "duration_seconds": 6.0,
+        },
+        log_path=log_file,
+    )
+    summary = get_telemetry_summary(log_path=log_file)
+    assert summary["post_expansions"]["total_credits_used"] == 1620
+    assert summary["post_expansions"]["sites"]["destinations-ai"]["credits_used"] == 1620
+

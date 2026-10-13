@@ -262,3 +262,31 @@ def test_cli_telemetry_tail(tmp_path):
     res_json = runner.invoke(cli, ["telemetry", "tail", "--file", str(log_file), "--json"])
     assert res_json.exit_code == 0
     assert "santorinisecrets" in res_json.output
+
+
+def test_cli_wp_rollback_post(tmp_path):
+    import json
+
+    snap = tmp_path / "snap.json"
+    snap.write_text(json.dumps({"post_id": 404, "title": "Test", "content": "<p>Hi</p>"}), encoding="utf-8")
+
+    runner = CliRunner()
+    with patch("katteb.cli.WordPressFleetManager") as mock_wp_cls:
+        mock_wp = MagicMock()
+        mock_wp.rollback_post.return_value = {
+            "success": True,
+            "site": "viatravelers",
+            "post_id": 404,
+            "restored_word_count": 250,
+            "restored_status": "publish",
+            "wp_admin_edit_url": "https://viatravelers.com/wp-admin/post.php?post=404&action=edit",
+        }
+        mock_wp_cls.return_value = mock_wp
+
+        res = runner.invoke(cli, ["wp", "rollback-post", "--site", "viatravelers", "--snapshot", str(snap), "--json"])
+        assert res.exit_code == 0
+        data = json.loads(res.output)
+        assert data["success"] is True
+        assert data["post_id"] == 404
+        assert "wp-admin/post.php?post=404" in data["wp_admin_edit_url"]
+

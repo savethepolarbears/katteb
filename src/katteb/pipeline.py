@@ -38,6 +38,7 @@ class PipelineEventPayload(BaseModel):
     brand_id: int | None = Field(default=None, description="Optional Katteb brand ID")
     writing_style_id: int | None = Field(default=None, description="Optional Katteb writing style ID")
     dry_run: bool = Field(default=False, description="Dry run simulation mode")
+    stage_draft: bool = Field(default=False, description="Stage updated post as draft (post_status=draft)")
     receipt_dir: str | None = Field(default=None, description="Optional directory to write markdown audit receipt")
 
 
@@ -133,16 +134,20 @@ def process_pipeline_event(
                         "dry_run": validated.dry_run,
                     }
 
-        res = manager.expand_and_update_post(
-            site=sanitized_site,
-            post_id=validated.post_id,
-            word_count=validated.target_words,
-            enhancements=validated.enhancements,
-            brand_id=validated.brand_id,
-            writing_style_id=validated.writing_style_id,
-            guidelines=validated.guidelines,
-            dry_run=validated.dry_run,
-        )
+        expand_kwargs: dict[str, Any] = {
+            "site": sanitized_site,
+            "post_id": validated.post_id,
+            "word_count": validated.target_words,
+            "enhancements": validated.enhancements,
+            "brand_id": validated.brand_id,
+            "writing_style_id": validated.writing_style_id,
+            "guidelines": validated.guidelines,
+            "dry_run": validated.dry_run,
+        }
+        if validated.stage_draft:
+            expand_kwargs["stage_draft"] = True
+
+        res = manager.expand_and_update_post(**expand_kwargs)
 
         if not res.get("success", False) and not res.get("dry_run", False):
             return {
@@ -168,10 +173,14 @@ def process_pipeline_event(
             "site": sanitized_site,
             "post_id": validated.post_id,
             "dry_run": validated.dry_run,
+            "stage_draft": validated.stage_draft,
             "title": res.get("title"),
-            "old_word_count": res.get("old_word_count") or res.get("current_word_count"),
+            "old_word_count": res.get("old_word_count") or res.get("previous_word_count") or res.get("current_word_count"),
             "new_word_count": res.get("new_word_count"),
+            "credits_used": res.get("credits_used"),
             "meta_description": res.get("meta_description"),
+            "backup_path": res.get("backup_path"),
+            "wp_admin_edit_url": res.get("wp_admin_edit_url"),
             "receipt_path": receipt_path,
         }
     except Exception as exc:

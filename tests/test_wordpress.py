@@ -15,8 +15,10 @@ def wp_manager():
 
 
 @pytest.fixture(autouse=True)
-def mock_default_preflight():
-    """Default patch for run_wp_cli to allow WordPress post updates in tests unless explicitly overridden."""
+def mock_default_preflight(tmp_path, monkeypatch):
+    """Default patch for run_wp_cli and isolated backup/telemetry paths in tests."""
+    monkeypatch.setenv("KATTEB_BACKUP_DIR", str(tmp_path / "backups"))
+    monkeypatch.setenv("KATTEB_TELEMETRY_FILE", str(tmp_path / "telemetry.jsonl"))
     with patch("katteb.wordpress.run_wp_cli", return_value="6.4.2"):
         yield
 
@@ -426,3 +428,147 @@ def test_generate_expansion_receipt(tmp_path):
     assert json_data["site"] == "destinations-ai"
     assert json_data["total_posts"] == 2
     assert "audit_hash" in json_data
+
+
+def test_expand_post_saves_backup_and_logs_credits_and_admin_url(wp_manager, tmp_path):
+    import json
+    from katteb.telemetry import get_telemetry_events, get_telemetry_summary
+
+    mock_post = {
+        "id": 777,
+        "title": "Santorini Sunset Guide",
+        "slug": "santorini-sunset-guide",
+        "post_type": "post",
+        "status": "publish",
+        "word_count": 300,
+        "content": "<p>Original short Santorini post.</p>",
+        "meta": {"city": "Oia", "country": "Greece", "rank_math_title": "Old Title"},
+    }
+    valid_html = (
+        "<h2>Overview of Oia Sunsets</h2><p>"
+        + " ".join(["Oia offers breathtaking caldera views across the Aegean Sea."] * 30)
+        + "</p>"
+        "<h2>Best Viewing Spots</h2><p>"
+        + " ".join(["Arrive early near the Byzantine Castle ruins for unobstructed vistas."] * 30)
+        + "</p>"
+        "<h3>Photography Tips</h3><p>"
+        + " ".join(["Bring a tripod and wide-angle lens for blue hour shots."] * 30)
+        + "</p>"
+    )
+    mock_article = ArticleGetResponse(
+        success=True,
+        job_id=501,
+        topic="Santorini Sunset Guide",
+        status="completed",
+        content_html=valid_html,
+        word_count=1650,
+        credits_charged=1720,
+        meta_title="Santorini Sunset Guide 2026",
+        meta_description="Where to watch the sunset in Santorini.",
+    )
+
+    backup_dir = tmp_path / "custom_backups"
+    with (
+        patch.object(wp_manager, "get_post_details", return_value=mock_post),
+        patch.object(wp_manager.queue, "generate_and_wait", return_value=mock_article),
+        patch(
+            "katteb.wordpress.run_wp_eval",
+            return_value={"success": True, "new_word_count": 1650, "post_status": "draft"},
+        ),
+    ):
+        res = wp_manager.expand_and_update_post(
+            site="santorinisecrets",
+            post_id=777,
+            word_count=1500,
+            stage_draft=True,
+            backup_dir=backup_dir,
+        )
+
+    assert res["success"] is True
+    assert res["credits_used"] == 1720
+    assert res["stage_draft"] is True
+    assert res["post_status"] == "draft"
+    assert res["wp_admin_edit_url"] == "https://santorinisecrets.com/wp-admin/post.php?post=777&action=edit"
+    assert res["backup_path"] is not None
+
+    snap_data = json.loads(open(res["backup_path"], encoding="utf-8").read())
+    assert snap_data["post_id"] == 777
+    assert snap_data["content"] == "<p>Original short Santorini post.</p>"
+    assert snap_data["meta"]["rank_math_title"] == "Old Title"
+
+    summary = get_telemetry_summary()
+    assert summary["post_expansions"]["total_credits_used"] == 1720
+    events = get_telemetry_events(limit=5)
+    assert events[-1]["credits_used"] == 1720
+    assert events[-1]["wp_admin_edit_url"] == "https://santorinisecrets.com/wp-admin/post.php?post=777&action=edit"
+
+
+def test_expand_post_failure_records_failed_telemetry(wp_manager):
+    from katteb.telemetry import get_telemetry_summary
+    from katteb.wordpress import ContentQualityError
+
+    mock_post = {
+        "id": 888,
+        "title": "Broken Post",
+        "post_type": "post",
+        "status": "publish",
+        "word_count": 200,
+        "content": "<p>Short text</p>",
+        "meta": {},
+    }
+    bad_article = ArticleGetResponse(
+        success=True,
+        job_id=502,
+        topic="Broken Post",
+        status="completed",
+        content_html="<h2>Heading</h2><p>Welcome to [City]!</p>",
+        word_count=1200,
+        credits_charged=1200,
+    )
+
+    with (
+        patch.object(wp_manager, "get_post_details", return_value=mock_post),
+        patch.object(wp_manager.queue, "generate_and_wait", return_value=bad_article),
+    ):
+        with pytest.raises(ContentQualityError):
+            wp_manager.expand_and_update_post(site="viatravelers", post_id=888, word_count=1200)
+
+    summary = get_telemetry_summary()
+    assert summary["post_expansions"]["total_runs"] == 1
+    assert summary["post_expansions"]["failed_runs"] == 1
+    assert summary["post_expansions"]["successful_runs"] == 0
+    assert summary["post_expansions"]["total_credits_used"] == 1200
+
+
+def test_rollback_post_restores_snapshot(wp_manager, tmp_path):
+    from katteb.wordpress import save_post_backup_snapshot
+
+    post_details = {
+        "id": 909,
+        "title": "Original Berlin Guide",
+        "slug": "berlin-guide",
+        "post_type": "destinations",
+        "status": "publish",
+        "word_count": 320,
+        "content": "<p>Original Berlin content.</p>",
+        "meta": {
+            "travel_guide": "<p>Original Berlin content.</p>",
+            "rank_math_title": "Original Berlin SEO Title",
+            "rank_math_description": "Original Berlin SEO Desc",
+            "rank_math_focus_keyword": "Berlin",
+        },
+    }
+    snap_path = save_post_backup_snapshot("everythingaboutgermany", post_details, backup_dir=tmp_path)
+
+    with patch(
+        "katteb.wordpress.run_wp_eval",
+        return_value={"success": True, "post_id": 909, "restored_word_count": 320, "restored_status": "publish"},
+    ) as mock_eval:
+        res = wp_manager.rollback_post("everythingaboutgermany", snap_path)
+        assert res["success"] is True
+        assert res["post_id"] == 909
+        assert res["restored_word_count"] == 320
+        assert res["restored_status"] == "publish"
+        assert res["wp_admin_edit_url"] == "https://everythingaboutgermany.com/wp-admin/post.php?post=909&action=edit"
+        mock_eval.assert_called_once()
+

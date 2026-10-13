@@ -541,6 +541,59 @@ def generate_expansion_receipt(
     return str(md_file_path)
 
 
+def get_wp_admin_edit_url(site: str, post_id: int) -> str:
+    """Resolve the canonical WordPress Admin edit URL for a given fleet site and post ID."""
+    profile = resolve_fleet_profile(site)
+    if profile and profile.get("domain"):
+        domain = str(profile["domain"]).strip()
+    else:
+        clean = site.strip().lstrip("@")
+        if clean.endswith(".prod"):
+            clean = clean[:-5]
+        domain = clean if "." in clean else f"{clean}.com"
+    return f"https://{domain}/wp-admin/post.php?post={int(post_id)}&action=edit"
+
+
+def resolve_backup_dir(backup_dir: Path | str | None = None) -> Path:
+    """Resolve the directory used for pre-mutation WordPress post backup snapshots."""
+    if backup_dir:
+        return Path(backup_dir).expanduser().resolve()
+    env_dir = os.getenv("KATTEB_BACKUP_DIR")
+    if env_dir:
+        return Path(env_dir).expanduser().resolve()
+    return (Path.home() / ".katteb" / "backups").resolve()
+
+
+def save_post_backup_snapshot(
+    site: str,
+    post_details: dict[str, Any],
+    backup_dir: Path | str | None = None,
+) -> str:
+    """Save a pre-mutation JSON backup snapshot of a WordPress post prior to updating."""
+    target_dir = resolve_backup_dir(backup_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    clean_site = re.sub(r"[^a-zA-Z0-9_-]", "-", site.strip().lstrip("@").removesuffix(".prod")) or "site"
+    post_id = int(post_details.get("id") or post_details.get("post_id") or 0)
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    snapshot_path = target_dir / f"backup-{clean_site}-post-{post_id}-{ts}.json"
+
+    snapshot_payload = {
+        "site": site,
+        "post_id": post_id,
+        "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "title": post_details.get("title", ""),
+        "slug": post_details.get("slug", ""),
+        "post_type": post_details.get("post_type", "post"),
+        "status": post_details.get("status", "publish"),
+        "word_count": post_details.get("word_count", 0),
+        "content": post_details.get("content", ""),
+        "meta": post_details.get("meta", {}),
+    }
+    snapshot_path.write_text(json.dumps(snapshot_payload, indent=2, default=str), encoding="utf-8")
+    return str(snapshot_path)
+
+
 class WordPressFleetManager:
     """Manages post auditing and AI content updates for WordPress fleet sites."""
 
@@ -711,6 +764,123 @@ class WordPressFleetManager:
             return cast(dict[str, Any], res)
         return {"error": str(res)}
 
+    def rollback_post(
+        self,
+        site: str,
+        snapshot_path: Path | str,
+        allow_custom_alias: bool = False,
+    ) -> dict[str, Any]:
+        """Restore a WordPress post's content, status, and RankMath SEO metadata from a backup snapshot."""
+        preflight = self.check_site_connectivity(site, allow_custom=allow_custom_alias)
+        if not preflight.success:
+            raise RuntimeError(f"Preflight check failed for site '{site}': {preflight.message} ({preflight.category})")
+
+        snap_file = Path(snapshot_path).expanduser().resolve()
+        if not snap_file.is_file():
+            raise FileNotFoundError(f"Backup snapshot not found at '{snap_file}'")
+
+        raw_snap = json.loads(snap_file.read_text(encoding="utf-8"))
+        post_id = int(raw_snap.get("post_id") or raw_snap.get("id") or 0)
+        if post_id <= 0:
+            raise ValueError(f"Invalid post_id in backup snapshot '{snap_file}'")
+
+        meta = raw_snap.get("meta") if isinstance(raw_snap.get("meta"), dict) else {}
+        restore_payload = {
+            "post_id": post_id,
+            "post_type": raw_snap.get("post_type", "post"),
+            "title": raw_snap.get("title", ""),
+            "status": raw_snap.get("status", "publish"),
+            "content": raw_snap.get("content", ""),
+            "travel_guide": meta.get("travel_guide"),
+            "rank_math_title": meta.get("rank_math_title"),
+            "rank_math_description": meta.get("rank_math_description"),
+            "rank_math_focus_keyword": meta.get("rank_math_focus_keyword"),
+        }
+
+        b64_payload = base64.b64encode(json.dumps(restore_payload).encode("utf-8")).decode("utf-8")
+        php_rollback = f"""
+        $raw = base64_decode('{b64_payload}');
+        $data = json_decode($raw, true);
+        $pid = (int)$data['post_id'];
+
+        $post_arr = array(
+            'ID' => $pid,
+            'post_content' => $data['content'],
+        );
+        if (!empty($data['title'])) {{
+            $post_arr['post_title'] = $data['title'];
+        }}
+        if (!empty($data['status'])) {{
+            $post_arr['post_status'] = $data['status'];
+        }}
+
+        $update_res = wp_update_post($post_arr, true);
+        if (is_wp_error($update_res)) {{
+            echo json_encode(array('error' => $update_res->get_error_message()));
+            exit;
+        }}
+
+        if ($data['post_type'] === 'destinations' && isset($data['travel_guide'])) {{
+            update_post_meta($pid, 'travel_guide', $data['travel_guide']);
+        }}
+        if (isset($data['rank_math_title'])) {{
+            update_post_meta($pid, 'rank_math_title', $data['rank_math_title']);
+        }}
+        if (isset($data['rank_math_description'])) {{
+            update_post_meta($pid, 'rank_math_description', $data['rank_math_description']);
+        }}
+        if (isset($data['rank_math_focus_keyword'])) {{
+            update_post_meta($pid, 'rank_math_focus_keyword', $data['rank_math_focus_keyword']);
+        }}
+
+        $restored_post = get_post($pid);
+        $clean = trim(preg_replace('/\\s+/', ' ', strip_tags($restored_post->post_content)));
+        $wc = empty($clean) ? 0 : str_word_count($clean);
+
+        echo json_encode(array(
+            'success' => true,
+            'post_id' => $pid,
+            'restored_word_count' => $wc,
+            'restored_status' => $restored_post->post_status,
+            'post_title' => $restored_post->post_title,
+        ));
+        """
+
+        wp_res = run_wp_eval(site, php_rollback, allow_custom=allow_custom_alias)
+        if isinstance(wp_res, dict) and wp_res.get("error"):
+            raise RuntimeError(f"WordPress post rollback failed: {wp_res['error']}")
+
+        restored_wc = (
+            wp_res.get("restored_word_count") if isinstance(wp_res, dict) else raw_snap.get("word_count", 0)
+        )
+        restored_status = (
+            wp_res.get("restored_status") if isinstance(wp_res, dict) else raw_snap.get("status", "publish")
+        )
+        admin_edit_url = get_wp_admin_edit_url(site, post_id)
+
+        result_dict = {
+            "success": True,
+            "site": site,
+            "post_id": post_id,
+            "title": raw_snap.get("title", ""),
+            "restored_word_count": restored_wc,
+            "restored_status": restored_status,
+            "snapshot_path": str(snap_file),
+            "wp_admin_edit_url": admin_edit_url,
+        }
+
+        try:
+            from katteb.telemetry import log_telemetry_event
+
+            log_telemetry_event(
+                event_type="post_rollback",
+                data=result_dict,
+            )
+        except Exception as e:
+            logger.warning("Failed to record post rollback telemetry: %s", e)
+
+        return result_dict
+
     def expand_and_update_post(
         self,
         site: str,
@@ -721,6 +891,8 @@ class WordPressFleetManager:
         brand_id: int | None = None,
         guidelines: str | None = None,
         dry_run: bool = False,
+        stage_draft: bool = False,
+        backup_dir: Path | str | None = None,
         allow_custom_alias: bool = False,
         on_status: Any | None = None,
     ) -> dict[str, Any]:
@@ -741,6 +913,7 @@ class WordPressFleetManager:
         city = meta.get("city") or meta.get("city_name") or title
         country = meta.get("country") or ""
         state = meta.get("state_name_full") or ""
+        admin_edit_url = get_wp_admin_edit_url(site, post_id)
 
         # Construct optimized Katteb generation topic based on post type
         if pt == "destinations":
@@ -780,113 +953,171 @@ class WordPressFleetManager:
                 "current_word_count": post["word_count"],
                 "enhancements": final_enhancements,
                 "guidelines": final_guidelines,
+                "stage_draft": stage_draft,
+                "wp_admin_edit_url": admin_edit_url,
                 "simulated": True,
             }
+
+        # 4. Save pre-mutation backup snapshot prior to generation / mutation
+        backup_path: str | None = None
+        try:
+            backup_path = save_post_backup_snapshot(site, post, backup_dir=backup_dir)
+        except Exception as bkp_err:
+            logger.warning("Failed to save pre-mutation backup snapshot for post %s: %s", post_id, bkp_err)
 
         if on_status:
             on_status(f"Generating article for post #{post_id} ('{topic}') via Katteb API...")
 
-        # 4. Generate via Katteb API
+        # 5. Generate via Katteb API and update WordPress with full telemetry tracking
         import time
 
         start_time = time.time()
-        article_res: ArticleGetResponse = self.queue.generate_and_wait(
-            topic=topic,
-            language="English",
-            country=target_country_code,
-            word_count=word_count,
-            brand_id=brand_id,
-            writing_style_id=writing_style_id,
-            guidelines=final_guidelines,
-            enhancements=final_enhancements,
-            on_status=on_status,
-        )
+        credits_used = 0
 
-        new_html = article_res.content_html or ""
-        meta_title = article_res.meta_title or title
-        meta_desc = article_res.meta_description or ""
-
-        # 5. Check provider error payloads
-        is_err, err_msg = is_error_payload(new_html)
-        if is_err:
-            raise RuntimeError(f"Katteb generation returned an error payload: {err_msg}")
-
-        # 6. Quality Gate: validate heading hierarchy, word count, and placeholder tokens
-        val_errors = validate_generated_content(new_html, target_word_count=word_count)
-        if val_errors:
-            err_msg = "; ".join(val_errors)
-            raise ContentQualityError(
-                f"Generated content for post #{post_id} failed quality gates: {err_msg}",
-                errors=val_errors,
+        try:
+            article_res: ArticleGetResponse = self.queue.generate_and_wait(
+                topic=topic,
+                language="English",
+                country=target_country_code,
+                word_count=word_count,
+                brand_id=brand_id,
+                writing_style_id=writing_style_id,
+                guidelines=final_guidelines,
+                enhancements=final_enhancements,
+                on_status=on_status,
             )
+            raw_charged = (
+                article_res.credits_charged
+                if article_res.credits_charged is not None
+                else self.queue.last_credits_charged
+            )
+            credits_used = int(raw_charged if raw_charged is not None else 1)
 
-        # 7. Clean meta_description from stray css or tags
-        meta_desc = sanitize_meta_description(meta_desc)
+            new_html = article_res.content_html or ""
+            meta_title = article_res.meta_title or title
+            meta_desc = article_res.meta_description or ""
 
-        if on_status:
-            on_status(f"Article generated ({article_res.word_count} words). Updating WordPress post #{post_id}...")
+            # 6. Check provider error payloads
+            is_err, err_msg = is_error_payload(new_html)
+            if is_err:
+                raise RuntimeError(f"Katteb generation returned an error payload: {err_msg}")
 
-        # 8. Update WordPress post via WP-CLI eval
-        update_payload = {
-            "post_id": post_id,
-            "post_type": pt,
-            "content": new_html,
-            "meta_title": meta_title,
-            "meta_desc": meta_desc,
-            "focus_kw": city if pt == "destinations" else title,
-        }
+            # 7. Quality Gate: validate heading hierarchy, word count, and placeholder tokens
+            val_errors = validate_generated_content(new_html, target_word_count=word_count)
+            if val_errors:
+                err_msg = "; ".join(val_errors)
+                raise ContentQualityError(
+                    f"Generated content for post #{post_id} failed quality gates: {err_msg}",
+                    errors=val_errors,
+                )
 
-        update_json_str = json.dumps(update_payload)
-        b64_payload = base64.b64encode(update_json_str.encode("utf-8")).decode("utf-8")
+            # 8. Clean meta_description from stray css or tags
+            meta_desc = sanitize_meta_description(meta_desc)
 
-        php_update = f"""
-        $raw = base64_decode('{b64_payload}');
-        $data = json_decode($raw, true);
-        $pid = (int)$data['post_id'];
+            if on_status:
+                on_status(f"Article generated ({article_res.word_count} words). Updating WordPress post #{post_id}...")
 
-        $update_res = wp_update_post(array(
-            'ID' => $pid,
-            'post_content' => $data['content'],
-        ), true);
+            # 9. Update WordPress post via WP-CLI eval
+            update_payload = {
+                "post_id": post_id,
+                "post_type": pt,
+                "content": new_html,
+                "meta_title": meta_title,
+                "meta_desc": meta_desc,
+                "focus_kw": city if pt == "destinations" else title,
+                "stage_draft": bool(stage_draft),
+            }
 
-        if (is_wp_error($update_res)) {{
-            echo json_encode(array('error' => $update_res->get_error_message()));
-            exit;
-        }}
+            update_json_str = json.dumps(update_payload)
+            b64_payload = base64.b64encode(update_json_str.encode("utf-8")).decode("utf-8")
 
-        // Update travel_guide custom field if destinations CPT
-        if ($data['post_type'] === 'destinations') {{
-            update_post_meta($pid, 'travel_guide', $data['content']);
-        }}
+            php_update = f"""
+            $raw = base64_decode('{b64_payload}');
+            $data = json_decode($raw, true);
+            $pid = (int)$data['post_id'];
 
-        // Update RankMath SEO metadata
-        if (!empty($data['meta_title'])) {{
-            update_post_meta($pid, 'rank_math_title', $data['meta_title']);
-        }}
-        if (!empty($data['meta_desc'])) {{
-            update_post_meta($pid, 'rank_math_description', $data['meta_desc']);
-        }}
-        if (!empty($data['focus_kw'])) {{
-            update_post_meta($pid, 'rank_math_focus_keyword', $data['focus_kw']);
-        }}
+            $post_arr = array(
+                'ID' => $pid,
+                'post_content' => $data['content'],
+            );
+            if (!empty($data['stage_draft'])) {{
+                $post_arr['post_status'] = 'draft';
+            }}
 
-        $updated_post = get_post($pid);
-        $clean = trim(preg_replace('/\\s+/', ' ', strip_tags($updated_post->post_content)));
-        $new_wc = str_word_count($clean);
+            $update_res = wp_update_post($post_arr, true);
 
-        echo json_encode(array(
-            'success' => true,
-            'post_id' => $pid,
-            'new_word_count' => $new_wc,
-            'post_title' => $updated_post->post_title,
-        ));
-        """
+            if (is_wp_error($update_res)) {{
+                echo json_encode(array('error' => $update_res->get_error_message()));
+                exit;
+            }}
 
-        wp_res = run_wp_eval(site, php_update, allow_custom=allow_custom_alias)
-        duration = round(time.time() - start_time, 2)
+            // Update travel_guide custom field if destinations CPT
+            if ($data['post_type'] === 'destinations') {{
+                update_post_meta($pid, 'travel_guide', $data['content']);
+            }}
 
-        if isinstance(wp_res, dict) and wp_res.get("error"):
-            raise RuntimeError(f"WordPress post update failed: {wp_res['error']}")
+            // Update RankMath SEO metadata
+            if (!empty($data['meta_title'])) {{
+                update_post_meta($pid, 'rank_math_title', $data['meta_title']);
+            }}
+            if (!empty($data['meta_desc'])) {{
+                update_post_meta($pid, 'rank_math_description', $data['meta_desc']);
+            }}
+            if (!empty($data['focus_kw'])) {{
+                update_post_meta($pid, 'rank_math_focus_keyword', $data['focus_kw']);
+            }}
+
+            $updated_post = get_post($pid);
+            $clean = trim(preg_replace('/\\s+/', ' ', strip_tags($updated_post->post_content)));
+            $new_wc = str_word_count($clean);
+
+            echo json_encode(array(
+                'success' => true,
+                'post_id' => $pid,
+                'new_word_count' => $new_wc,
+                'post_title' => $updated_post->post_title,
+                'post_status' => $updated_post->post_status,
+            ));
+            """
+
+            wp_res = run_wp_eval(site, php_update, allow_custom=allow_custom_alias)
+            duration = round(time.time() - start_time, 2)
+
+            if isinstance(wp_res, dict) and wp_res.get("error"):
+                raise RuntimeError(f"WordPress post update failed: {wp_res['error']}")
+
+        except Exception as exc:
+            duration = round(time.time() - start_time, 2)
+            try:
+                from katteb.telemetry import log_telemetry_event
+
+                log_telemetry_event(
+                    event_type="post_expansion",
+                    data={
+                        "site": site,
+                        "post_id": post_id,
+                        "title": title,
+                        "previous_word_count": post.get("word_count", 0),
+                        "new_word_count": post.get("word_count", 0),
+                        "words_generated": 0,
+                        "credits_used": credits_used,
+                        "estimated_credits": credits_used,
+                        "duration_seconds": duration,
+                        "backup_path": backup_path,
+                        "wp_admin_edit_url": admin_edit_url,
+                        "error": str(exc),
+                        "success": False,
+                    },
+                )
+            except Exception as tel_err:
+                logger.warning("Failed to record failed post expansion telemetry: %s", tel_err)
+            raise
+
+        final_status = (
+            wp_res.get("post_status")
+            if isinstance(wp_res, dict) and wp_res.get("post_status")
+            else ("draft" if stage_draft else post.get("status", "publish"))
+        )
 
         res_dict = {
             "success": True,
@@ -895,9 +1126,14 @@ class WordPressFleetManager:
             "previous_word_count": post["word_count"],
             "new_word_count": wp_res.get("new_word_count") if isinstance(wp_res, dict) else article_res.word_count,
             "job_id": article_res.job_id,
+            "credits_used": credits_used,
             "meta_title": meta_title,
             "meta_description": meta_desc,
             "duration_seconds": duration,
+            "stage_draft": stage_draft,
+            "post_status": final_status,
+            "backup_path": backup_path,
+            "wp_admin_edit_url": admin_edit_url,
         }
 
         try:
@@ -914,8 +1150,13 @@ class WordPressFleetManager:
                     "words_generated": max(
                         0, (res_dict["new_word_count"] or 0) - (res_dict["previous_word_count"] or 0)
                     ),
-                    "estimated_credits": 1,
+                    "credits_used": credits_used,
+                    "estimated_credits": credits_used,
                     "duration_seconds": duration,
+                    "stage_draft": stage_draft,
+                    "post_status": final_status,
+                    "backup_path": backup_path,
+                    "wp_admin_edit_url": admin_edit_url,
                     "success": True,
                 },
             )

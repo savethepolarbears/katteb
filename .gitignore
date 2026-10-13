@@ -112,6 +112,9 @@ credentials.json
 # Graphify build cache & outputs
 graphify-out/
 .planning/graphs/
+.planning/.mempalace-stage/
 
-# Execution receipts
+# Execution receipts & backup snapshots
 receipts/
+backups/
+

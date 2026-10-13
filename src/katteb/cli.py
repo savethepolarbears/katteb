@@ -506,9 +506,10 @@ def wp_audit_low_words(ctx: click.Context, site: str, threshold: int, post_type:
 @click.option("--site", "-s", default="destinations-ai", help="WP alias (default: destinations-ai)")
 @click.option("--id", "-i", "post_id", required=True, type=int, help="WordPress Post ID to expand")
 @click.option("--words", "-w", default=1500, type=int, help="Target word count (default: 1500)")
+@click.option("--stage-draft", is_flag=True, help="Stage expanded content as a WordPress draft (post_status=draft)")
 @click.option("--dry-run", is_flag=True, help="Preview generation prompt and parameters without calling Katteb")
 @click.pass_context
-def wp_expand_post(ctx: click.Context, site: str, post_id: int, words: int, dry_run: bool):
+def wp_expand_post(ctx: click.Context, site: str, post_id: int, words: int, stage_draft: bool, dry_run: bool):
     """Generate expanded AI content via Katteb and update WordPress post."""
     client = get_client(ctx)
     wp_mgr = WordPressFleetManager(client)
@@ -518,13 +519,17 @@ def wp_expand_post(ctx: click.Context, site: str, post_id: int, words: int, dry_
         if not as_json:
             console.print(f"ℹ️ {msg}")
 
-    result = wp_mgr.expand_and_update_post(
-        site=site,
-        post_id=post_id,
-        word_count=words,
-        dry_run=dry_run,
-        on_status=on_status,
-    )
+    expand_kwargs: dict[str, Any] = {
+        "site": site,
+        "post_id": post_id,
+        "word_count": words,
+        "dry_run": dry_run,
+        "on_status": on_status,
+    }
+    if stage_draft:
+        expand_kwargs["stage_draft"] = True
+
+    result = wp_mgr.expand_and_update_post(**expand_kwargs)
 
     if as_json:
         print_json(result)
@@ -535,6 +540,8 @@ def wp_expand_post(ctx: click.Context, site: str, post_id: int, words: int, dry_
         console.print(f"Country Code: {result['country']} | Target Words: {result['word_count']}")
         console.print(f"Enhancements: {result['enhancements']}")
         console.print(f"Guidelines: {result['guidelines']}")
+        if result.get("wp_admin_edit_url"):
+            console.print(f"WP Admin Edit Link: [underline cyan]{result['wp_admin_edit_url']}[/underline cyan]")
     else:
         console.print("\n🎉 [bold green]Post Successfully Expanded & Updated in WordPress![/bold green]")
         console.print(f"Post ID: {result['post_id']} | Title: {result['title']}")
@@ -543,6 +550,40 @@ def wp_expand_post(ctx: click.Context, site: str, post_id: int, words: int, dry_
         )
         console.print(f"SEO Title: {result['meta_title']}")
         console.print(f"SEO Description: {result['meta_description']}")
+        if result.get("backup_path"):
+            console.print(f"Backup Snapshot: [dim]{result['backup_path']}[/dim]")
+        if result.get("wp_admin_edit_url"):
+            console.print(f"WP Admin Edit Link: [underline cyan]{result['wp_admin_edit_url']}[/underline cyan]")
+
+
+@wp.command("rollback-post")
+@click.option("--site", "-s", default="destinations-ai", help="WP alias (default: destinations-ai)")
+@click.option("--snapshot", "-f", required=True, type=click.Path(exists=True), help="Path to backup snapshot JSON")
+@click.option("--json", "output_json", is_flag=True, help="Output JSON format")
+@click.pass_context
+def wp_rollback_post(ctx: click.Context, site: str, snapshot: str, output_json: bool):
+    """Restore a WordPress post from a pre-mutation backup snapshot."""
+    as_json = ctx.obj.get("as_json", False) or output_json
+    wp_mgr = WordPressFleetManager(KattebClient(api_key=ctx.obj.get("api_key") or "offline_rollback"))
+
+    try:
+        res = wp_mgr.rollback_post(site=site, snapshot_path=snapshot)
+    except Exception as exc:
+        if as_json:
+            print_json({"success": False, "site": site, "snapshot": snapshot, "error": str(exc)})
+        else:
+            console.print(f"❌ [bold red]Rollback failed:[/bold red] {exc}")
+        sys.exit(1)
+
+    if as_json:
+        print_json(res)
+    else:
+        console.print(
+            f"✅ [bold green]Post #{res['post_id']} Restored on {site}![/bold green] "
+            f"({res.get('restored_word_count', 0)} words, status={res.get('restored_status')})"
+        )
+        if res.get("wp_admin_edit_url"):
+            console.print(f"WP Admin Edit Link: [underline cyan]{res['wp_admin_edit_url']}[/underline cyan]")
 
 
 @wp.command("batch-expand")
@@ -550,13 +591,21 @@ def wp_expand_post(ctx: click.Context, site: str, post_id: int, words: int, dry_
 @click.option("--post-type", "-p", default="destinations", help="Post type to expand (default: destinations)")
 @click.option("--limit", "-n", default=3, type=int, help="Number of lowest word count posts to expand (default: 3)")
 @click.option("--words", "-w", default=1500, type=int, help="Target word count per article")
+@click.option("--stage-draft", is_flag=True, help="Stage expanded posts as WordPress drafts (post_status=draft)")
 @click.option("--dry-run", is_flag=True, help="Preview batch plan without executing")
 @click.option(
     "--receipt-dir", "-r", default="receipts", help="Directory to save markdown audit receipt (default: receipts)"
 )
 @click.pass_context
 def wp_batch_expand(
-    ctx: click.Context, site: str, post_type: str, limit: int, words: int, dry_run: bool, receipt_dir: str
+    ctx: click.Context,
+    site: str,
+    post_type: str,
+    limit: int,
+    words: int,
+    stage_draft: bool,
+    dry_run: bool,
+    receipt_dir: str,
 ):
     """Batch expand the lowest word count posts for a post type on WordPress."""
     client = get_client(ctx)
@@ -590,12 +639,15 @@ def wp_batch_expand(
         if not as_json:
             console.print(f"\n[{idx}/{len(targets)}] Processing Post #{t['id']}: {t['title']}...")
         try:
-            res = wp_mgr.expand_and_update_post(
-                site=site,
-                post_id=t["id"],
-                word_count=words,
-                on_status=None if as_json else (lambda m: console.print(f"   {m}")),
-            )
+            expand_kwargs: dict[str, Any] = {
+                "site": site,
+                "post_id": t["id"],
+                "word_count": words,
+                "on_status": None if as_json else (lambda m: console.print(f"   {m}")),
+            }
+            if stage_draft:
+                expand_kwargs["stage_draft"] = True
+            res = wp_mgr.expand_and_update_post(**expand_kwargs)
             results.append(res)
             if not as_json:
                 console.print(
@@ -638,6 +690,7 @@ def wp_batch_expand(
 @click.option("--site", help="Override site alias")
 @click.option("--post-id", type=int, help="Override post ID")
 @click.option("--words", type=int, help="Override target word count")
+@click.option("--stage-draft", is_flag=True, default=None, help="Stage post update as draft (post_status=draft)")
 @click.option("--dry-run", is_flag=True, default=None, help="Run in dry-run simulation mode")
 @click.option("--receipt-dir", help="Directory to save execution receipts")
 @click.option("--json", "output_json", is_flag=True, help="Output JSON format")
@@ -649,6 +702,7 @@ def pipeline_dispatch(
     site: str | None,
     post_id: int | None,
     words: int | None,
+    stage_draft: bool | None,
     dry_run: bool | None,
     receipt_dir: str | None,
     output_json: bool = False,
@@ -695,6 +749,8 @@ def pipeline_dispatch(
         raw_payload["post_id"] = post_id
     if words:
         raw_payload["target_words"] = words
+    if stage_draft is not None:
+        raw_payload["stage_draft"] = stage_draft
     if dry_run is not None:
         raw_payload["dry_run"] = dry_run
     if receipt_dir:
