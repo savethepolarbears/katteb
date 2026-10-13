@@ -432,6 +432,7 @@ def test_generate_expansion_receipt(tmp_path):
 
 def test_expand_post_saves_backup_and_logs_credits_and_admin_url(wp_manager, tmp_path):
     import json
+
     from katteb.telemetry import get_telemetry_events, get_telemetry_summary
 
     mock_post = {
@@ -491,7 +492,9 @@ def test_expand_post_saves_backup_and_logs_credits_and_admin_url(wp_manager, tmp
     assert res["wp_admin_edit_url"] == "https://santorinisecrets.com/wp-admin/post.php?post=777&action=edit"
     assert res["backup_path"] is not None
 
-    snap_data = json.loads(open(res["backup_path"], encoding="utf-8").read())
+    from pathlib import Path
+
+    snap_data = json.loads(Path(res["backup_path"]).read_text(encoding="utf-8"))
     assert snap_data["post_id"] == 777
     assert snap_data["content"] == "<p>Original short Santorini post.</p>"
     assert snap_data["meta"]["rank_math_title"] == "Old Title"
@@ -529,9 +532,9 @@ def test_expand_post_failure_records_failed_telemetry(wp_manager):
     with (
         patch.object(wp_manager, "get_post_details", return_value=mock_post),
         patch.object(wp_manager.queue, "generate_and_wait", return_value=bad_article),
+        pytest.raises(ContentQualityError),
     ):
-        with pytest.raises(ContentQualityError):
-            wp_manager.expand_and_update_post(site="viatravelers", post_id=888, word_count=1200)
+        wp_manager.expand_and_update_post(site="viatravelers", post_id=888, word_count=1200)
 
     summary = get_telemetry_summary()
     assert summary["post_expansions"]["total_runs"] == 1
@@ -720,6 +723,3 @@ def test_expand_and_update_post_passes_language_and_localized_guidelines(wp_mana
     assert call_kwargs["language"] == "German"
     assert call_kwargs["country"] == "de"
     assert "Deutschlandticket" in call_kwargs["guidelines"]
-
-
-

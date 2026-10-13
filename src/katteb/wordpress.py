@@ -713,7 +713,9 @@ def validate_generated_content(
     is_greek_context = (
         (country or "").lower() == "gr"
         or normalize_language_name(language) == "Greek"
-        or any(tok in lower_html for tok in ["santorini", "greece", "fira", "oia", "cyclades", "mykonos", "griechenland"])
+        or any(
+            tok in lower_html for tok in ["santorini", "greece", "fira", "oia", "cyclades", "mykonos", "griechenland"]
+        )
     )
     if is_greek_context:
         for pat in donkey_patterns:
@@ -1117,9 +1119,7 @@ class WordPressFleetManager:
         if isinstance(wp_res, dict) and wp_res.get("error"):
             raise RuntimeError(f"WordPress post rollback failed: {wp_res['error']}")
 
-        restored_wc = (
-            wp_res.get("restored_word_count") if isinstance(wp_res, dict) else raw_snap.get("word_count", 0)
-        )
+        restored_wc = wp_res.get("restored_word_count") if isinstance(wp_res, dict) else raw_snap.get("word_count", 0)
         restored_status = (
             wp_res.get("restored_status") if isinstance(wp_res, dict) else raw_snap.get("status", "publish")
         )

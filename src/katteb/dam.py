@@ -130,10 +130,7 @@ def is_prohibited_donkey_media(item_or_text: DAMMediaItem | dict[str, Any] | str
         if re.search(pat, haystack, re.IGNORECASE):
             return True
 
-    if "donkey" in haystack or "mule" in haystack:
-        return True
-
-    return False
+    return bool("donkey" in haystack or "mule" in haystack)
 
 
 def compute_file_sha256(file_path: str | Path) -> str:
@@ -267,9 +264,7 @@ def inject_dam_media_into_html(
     if not h2_tags:
         return html_content
 
-    existing_srcs = {
-        str(img.get("src", "")).strip() for img in soup.find_all("img") if img.get("src")
-    }
+    existing_srcs = {str(img.get("src", "")).strip() for img in soup.find_all("img") if img.get("src")}
 
     injected_count = 0
     for idx, item in enumerate(selected):
@@ -344,11 +339,7 @@ class TravelMediaDAMResolver:
                 if not isinstance(row, dict):
                     continue
                 file_path = str(
-                    row.get("file_path")
-                    or row.get("path")
-                    or row.get("filepath")
-                    or row.get("filename")
-                    or ""
+                    row.get("file_path") or row.get("path") or row.get("filepath") or row.get("filename") or ""
                 ).strip()
                 if not file_path:
                     continue
@@ -364,7 +355,9 @@ class TravelMediaDAMResolver:
 
                 title_val = sanitize_editorial_title(str(row.get("title") or row.get("name") or ""))
                 caption_val = sanitize_editorial_caption(str(row.get("caption") or row.get("description") or ""))
-                alt_val = sanitize_editorial_caption(str(row.get("alt_text") or row.get("alt") or caption_val or title_val))
+                alt_val = sanitize_editorial_caption(
+                    str(row.get("alt_text") or row.get("alt") or caption_val or title_val)
+                )
 
                 item = DAMMediaItem(
                     asset_id=str(row.get("asset_id") or row.get("id") or f"dam-{idx + 1}"),

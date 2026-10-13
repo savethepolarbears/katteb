@@ -276,7 +276,9 @@ def test_poll_seo_until_complete_success(client):
 
     progress_calls = []
     with patch.object(client, "get_seo", side_effect=[pending, done]), patch("time.sleep"):
-        res = client.poll_seo_until_complete(55, interval_seconds=1, timeout_seconds=30, on_progress=progress_calls.append)
+        res = client.poll_seo_until_complete(
+            55, interval_seconds=1, timeout_seconds=30, on_progress=progress_calls.append
+        )
         assert res.status == "completed"
         assert res.score == 94.5
         assert len(progress_calls) == 2
@@ -287,6 +289,8 @@ def test_poll_seo_until_complete_failure(client):
     from katteb.models import SEOGetResponse
 
     failed = SEOGetResponse(success=False, job_id=56, status="failed", error="Invalid target URL")
-    with patch.object(client, "get_seo", return_value=failed), pytest.raises(KattebAPIError, match="SEO analysis failed"):
+    with (
+        patch.object(client, "get_seo", return_value=failed),
+        pytest.raises(KattebAPIError, match="SEO analysis failed"),
+    ):
         client.poll_seo_until_complete(56, interval_seconds=1, timeout_seconds=10)
-

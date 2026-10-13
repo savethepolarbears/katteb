@@ -60,11 +60,11 @@ def test_dam_resolver_csv_deduplication_and_donkey_ban(tmp_path: Path):
     csv_file = tmp_path / "places.csv"
     csv_file.write_text(
         "asset_id,file_path,city,region,country,title,caption,sha256,public_url,keywords\n"
-        "1,/photos/oia_sunset_1.jpg,Oia,Cyclades,Greece,Oia Sunset © Kyle Kroeger,Sunset over Oia caldera.,sha_oia_1,https://cdn.example.com/oia1.jpg,\"santorini,sunset\"\n"
-        "2,/photos/oia_sunset_1_copy.jpg,Oia,Cyclades,Greece,Duplicate Checksum Photo,Duplicate SHA.,sha_oia_1,https://cdn.example.com/oia1_dup.jpg,\"santorini\"\n"
-        "3,/photos/oia_sunset_2.raw,Oia,Cyclades,Greece,Duplicate Stem Photo,Same stem as item 4.,sha_oia_2a,https://cdn.example.com/oia2.jpg,\"santorini\"\n"
-        "4,/photos/oia_sunset_2.jpg,Oia,Cyclades,Greece,Duplicate Stem Photo JPEG,Same stem.,sha_oia_2b,https://cdn.example.com/oia2b.jpg,\"santorini\"\n"
-        "5,/photos/fira_donkey_taxi.jpg,Fira,Cyclades,Greece,Fira Donkey Taxi,Donkeys carrying luggage in Fira.,sha_donkey,https://cdn.example.com/donkey.jpg,\"donkey,fira\"\n",
+        '1,/photos/oia_sunset_1.jpg,Oia,Cyclades,Greece,Oia Sunset © Kyle Kroeger,Sunset over Oia caldera.,sha_oia_1,https://cdn.example.com/oia1.jpg,"santorini,sunset"\n'
+        '2,/photos/oia_sunset_1_copy.jpg,Oia,Cyclades,Greece,Duplicate Checksum Photo,Duplicate SHA.,sha_oia_1,https://cdn.example.com/oia1_dup.jpg,"santorini"\n'
+        '3,/photos/oia_sunset_2.raw,Oia,Cyclades,Greece,Duplicate Stem Photo,Same stem as item 4.,sha_oia_2a,https://cdn.example.com/oia2.jpg,"santorini"\n'
+        '4,/photos/oia_sunset_2.jpg,Oia,Cyclades,Greece,Duplicate Stem Photo JPEG,Same stem.,sha_oia_2b,https://cdn.example.com/oia2b.jpg,"santorini"\n'
+        '5,/photos/fira_donkey_taxi.jpg,Fira,Cyclades,Greece,Fira Donkey Taxi,Donkeys carrying luggage in Fira.,sha_donkey,https://cdn.example.com/donkey.jpg,"donkey,fira"\n',
         encoding="utf-8",
     )
 
@@ -147,15 +147,17 @@ def test_optimize_media_asset_rejects_oversized_and_donkey(tmp_path: Path):
         res.stderr = ""
         return res
 
-    with patch("katteb.dam.subprocess.run", side_effect=fake_oversize_run):
-        with pytest.raises(ValueError, match="exceeds maximum allowed limit"):
-            optimize_media_asset(
-                src_path=src_img,
-                output_dir=tmp_path / "out",
-                title="Caldera Cliffs",
-                country="Greece",
-                max_bytes=1_000_000,
-            )
+    with (
+        patch("katteb.dam.subprocess.run", side_effect=fake_oversize_run),
+        pytest.raises(ValueError, match="exceeds maximum allowed limit"),
+    ):
+        optimize_media_asset(
+            src_path=src_img,
+            output_dir=tmp_path / "out",
+            title="Caldera Cliffs",
+            country="Greece",
+            max_bytes=1_000_000,
+        )
 
 
 def test_inject_dam_media_into_html():
@@ -282,7 +284,10 @@ def test_expand_post_with_dam_media_injection(tmp_path: Path, monkeypatch):
         patch.object(mgr, "check_site_connectivity", return_value=mock_preflight),
         patch.object(mgr, "get_post_details", return_value=mock_post),
         patch.object(mgr.queue, "generate_and_wait", return_value=mock_article),
-        patch("katteb.wordpress.run_wp_eval", return_value={"success": True, "new_word_count": 1620, "post_status": "publish"}),
+        patch(
+            "katteb.wordpress.run_wp_eval",
+            return_value={"success": True, "new_word_count": 1620, "post_status": "publish"},
+        ),
     ):
         res = mgr.expand_and_update_post(
             site="paristopten",
@@ -295,4 +300,3 @@ def test_expand_post_with_dam_media_injection(tmp_path: Path, monkeypatch):
 
     assert res["success"] is True
     assert res["dam_images_injected"] == 1
-

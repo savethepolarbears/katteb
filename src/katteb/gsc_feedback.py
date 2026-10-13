@@ -19,9 +19,7 @@ DEFAULT_GOG_ACCOUNT = "klkroeger@gmail.com"
 DEFAULT_GOG_CLIENT = "bbm-analytics-cloud"
 
 GSC_SITE_PROPERTY_MAP: dict[str, str] = {
-    alias: f"sc-domain:{profile['domain']}"
-    for alias, profile in FLEET_SITE_PROFILES.items()
-    if profile.get("domain")
+    alias: f"sc-domain:{profile['domain']}" for alias, profile in FLEET_SITE_PROFILES.items() if profile.get("domain")
 }
 
 
@@ -290,7 +288,10 @@ class GSCFeedbackAuditor:
                 haystack = f"{r.get('query', '')} {r.get('page', '')}".lower()
                 if title and (
                     title.lower() in haystack
-                    or (title_tokens and sum(1 for tok in title_tokens if tok in haystack) >= max(1, len(title_tokens) // 2))
+                    or (
+                        title_tokens
+                        and sum(1 for tok in title_tokens if tok in haystack) >= max(1, len(title_tokens) // 2)
+                    )
                 ):
                     matched_rows.append(r)
 

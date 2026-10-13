@@ -298,4 +298,3 @@ def test_get_telemetry_summary_estimated_credits_fallback(tmp_path: Path):
     summary = get_telemetry_summary(log_path=log_file)
     assert summary["post_expansions"]["total_credits_used"] == 1620
     assert summary["post_expansions"]["sites"]["destinations-ai"]["credits_used"] == 1620
-

@@ -230,7 +230,9 @@ def process_pipeline_event(
             "language": res.get("language") or validated.language,
             "country": res.get("country"),
             "title": res.get("title"),
-            "old_word_count": res.get("old_word_count") or res.get("previous_word_count") or res.get("current_word_count"),
+            "old_word_count": res.get("old_word_count")
+            or res.get("previous_word_count")
+            or res.get("current_word_count"),
             "new_word_count": res.get("new_word_count"),
             "credits_used": res.get("credits_used"),
             "dam_images_injected": res.get("dam_images_injected", 0),

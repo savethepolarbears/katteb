@@ -14,7 +14,6 @@ from katteb.gsc_feedback import (
     CONTENT_REFRESH_QUEUE_TABLE_ID,
     GSCFeedbackAuditor,
     compute_opportunity_score,
-    format_refresh_queue_records,
     resolve_gsc_property,
 )
 from katteb.pipeline import process_pipeline_event
@@ -35,11 +34,46 @@ def test_resolve_gsc_property_and_opportunity_score():
 def test_detect_striking_distance_queries_filtering_and_ranking():
     auditor = GSCFeedbackAuditor()
     sample_rows = [
-        {"query": "best areas to stay in santorini", "page": "https://santorinisecrets.com/where-to-stay", "clicks": 8, "impressions": 620, "ctr": 0.0129, "position": 5.4},
-        {"query": "fira vs oia santorini", "page": "https://santorinisecrets.com/fira-vs-oia", "clicks": 3, "impressions": 210, "ctr": 0.014, "position": 11.2},
-        {"query": "santorini hotels", "page": "https://santorinisecrets.com/hotels", "clicks": 90, "impressions": 900, "ctr": 0.10, "position": 2.1},  # Too high (pos < 4.0)
-        {"query": "obscure cyclades ferry", "page": "https://santorinisecrets.com/ferry", "clicks": 1, "impressions": 25, "ctr": 0.04, "position": 7.5},  # Too few impressions (< 50)
-        {"query": "deep page 3 query", "page": "https://santorinisecrets.com/page3", "clicks": 0, "impressions": 300, "ctr": 0.0, "position": 22.0},  # Pos > 15.0
+        {
+            "query": "best areas to stay in santorini",
+            "page": "https://santorinisecrets.com/where-to-stay",
+            "clicks": 8,
+            "impressions": 620,
+            "ctr": 0.0129,
+            "position": 5.4,
+        },
+        {
+            "query": "fira vs oia santorini",
+            "page": "https://santorinisecrets.com/fira-vs-oia",
+            "clicks": 3,
+            "impressions": 210,
+            "ctr": 0.014,
+            "position": 11.2,
+        },
+        {
+            "query": "santorini hotels",
+            "page": "https://santorinisecrets.com/hotels",
+            "clicks": 90,
+            "impressions": 900,
+            "ctr": 0.10,
+            "position": 2.1,
+        },  # Too high (pos < 4.0)
+        {
+            "query": "obscure cyclades ferry",
+            "page": "https://santorinisecrets.com/ferry",
+            "clicks": 1,
+            "impressions": 25,
+            "ctr": 0.04,
+            "position": 7.5,
+        },  # Too few impressions (< 50)
+        {
+            "query": "deep page 3 query",
+            "page": "https://santorinisecrets.com/page3",
+            "clicks": 0,
+            "impressions": 300,
+            "ctr": 0.0,
+            "position": 22.0,
+        },  # Pos > 15.0
     ]
 
     opportunities = auditor.detect_striking_distance_queries(
@@ -256,4 +290,3 @@ def test_cli_and_pipeline_striking_distance(tmp_path: Path):
     )
     assert audit_human_res.exit_code == 0
     assert "30-Day Impact Audit Complete" in audit_human_res.output
-

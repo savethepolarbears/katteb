@@ -51,9 +51,7 @@ class KattebQueueManager:
         else:
             wait_time = e.retry_after or 60
             if on_status:
-                on_status(
-                    f"Rate limited. Waiting {wait_time}s before retry (attempt {attempt + 1}/{max_retries})..."
-                )
+                on_status(f"Rate limited. Waiting {wait_time}s before retry (attempt {attempt + 1}/{max_retries})...")
             time.sleep(wait_time)
 
     def generate_with_concurrency_wait(

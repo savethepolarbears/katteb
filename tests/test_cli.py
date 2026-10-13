@@ -289,4 +289,3 @@ def test_cli_wp_rollback_post(tmp_path):
         assert data["success"] is True
         assert data["post_id"] == 404
         assert "wp-admin/post.php?post=404" in data["wp_admin_edit_url"]
-

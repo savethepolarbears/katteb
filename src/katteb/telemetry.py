@@ -134,7 +134,11 @@ def get_telemetry_summary(log_path: Path | str | None = None) -> dict[str, Any]:
                     raw_credits = (
                         ev.get("credits_used")
                         if ev.get("credits_used") is not None
-                        else (ev.get("credits_charged") if ev.get("credits_charged") is not None else ev.get("estimated_credits"))
+                        else (
+                            ev.get("credits_charged")
+                            if ev.get("credits_charged") is not None
+                            else ev.get("estimated_credits")
+                        )
                     )
                     credits_used = int(raw_credits or 0)
                     duration = float(ev.get("duration_seconds") or 0.0)
