@@ -717,6 +717,122 @@ def wp_batch_expand(
             console.print(f"📄 Audit receipt written to: [bold cyan]{receipt_file}[/bold cyan]")
 
 
+@wp.command("striking-distance")
+@click.option("--site", "-s", default="viatravelers", help="WP fleet site alias (default: viatravelers)")
+@click.option("--days", "-d", default=28, type=int, help="Trailing GSC lookback window in days (default: 28)")
+@click.option("--min-impressions", default=50, type=int, help="Minimum impressions threshold (default: 50)")
+@click.option("--limit", "-n", default=25, type=int, help="Maximum striking-distance queries to return")
+@click.option("--input-file", type=click.Path(exists=True), help="Optional offline GSC analytics JSON file")
+@click.option("--json", "output_json", is_flag=True, help="Output JSON format")
+@click.pass_context
+def wp_striking_distance(
+    ctx: click.Context,
+    site: str,
+    days: int,
+    min_impressions: int,
+    limit: int,
+    input_file: str | None,
+    output_json: bool,
+):
+    """Detect Google Search Console striking-distance queries (pos 4.0-15.0, impressions >= 50)."""
+    from katteb.gsc_feedback import GSCFeedbackAuditor, format_refresh_queue_records
+
+    as_json = ctx.obj.get("as_json", False) or output_json
+    auditor = GSCFeedbackAuditor()
+    try:
+        opportunities = auditor.detect_striking_distance_queries(
+            site=site,
+            days=days,
+            min_impressions=min_impressions,
+            limit=limit,
+            input_file=input_file,
+        )
+        queue_payload = format_refresh_queue_records(site, opportunities)
+    except Exception as exc:
+        if as_json:
+            print_json({"success": False, "site": site, "error": str(exc)})
+        else:
+            console.print(f"❌ [bold red]GSC striking-distance detection failed:[/bold red] {exc}")
+        sys.exit(1)
+
+    if as_json:
+        print_json(
+            {
+                "success": True,
+                "site": site,
+                "days": days,
+                "count": len(opportunities),
+                "opportunities": opportunities,
+                "refresh_queue": queue_payload,
+            }
+        )
+        return
+
+    if not opportunities:
+        console.print(f"[yellow]No striking-distance queries found for {site} over trailing {days} days.[/yellow]")
+        return
+
+    table = Table(title=f"🎯 GSC Striking-Distance Opportunities: {site} ({len(opportunities)})", show_header=True)
+    table.add_column("Query", style="bold cyan")
+    table.add_column("Pos", style="yellow")
+    table.add_column("Impr", style="green")
+    table.add_column("CTR", style="magenta")
+    table.add_column("Score", style="bold")
+    for opp in opportunities:
+        table.add_row(
+            opp["query"],
+            f"{opp['position']:.1f}",
+            f"{opp['impressions']:,}",
+            f"{opp['ctr'] * 100:.2f}%",
+            f"{opp['opportunity_score']:,.1f}",
+        )
+    console.print(table)
+
+
+@wp.command("audit-impact")
+@click.option("--site", "-s", default=None, help="Filter by WP fleet site alias")
+@click.option("--min-days", default=30, type=int, help="Minimum age in days since post expansion (default: 30)")
+@click.option("--log-file", type=click.Path(exists=True), help="Custom telemetry JSONL log path")
+@click.option("--gsc-file", type=click.Path(exists=True), help="Optional offline GSC analytics JSON file")
+@click.option("--json", "output_json", is_flag=True, help="Output JSON format")
+@click.pass_context
+def wp_audit_impact(
+    ctx: click.Context,
+    site: str | None,
+    min_days: int,
+    log_file: str | None,
+    gsc_file: str | None,
+    output_json: bool,
+):
+    """Audit 30-day post-expansion SEO impact and queue low-CTR posts for refresh."""
+    from katteb.gsc_feedback import GSCFeedbackAuditor
+
+    as_json = ctx.obj.get("as_json", False) or output_json
+    auditor = GSCFeedbackAuditor()
+    try:
+        summary = auditor.audit_expanded_posts_impact(
+            site=site,
+            min_days_age=min_days,
+            log_path=log_file,
+            input_file=gsc_file,
+        )
+    except Exception as exc:
+        if as_json:
+            print_json({"success": False, "site": site, "error": str(exc)})
+        else:
+            console.print(f"❌ [bold red]Impact audit failed:[/bold red] {exc}")
+        sys.exit(1)
+
+    if as_json:
+        print_json(summary)
+        return
+
+    console.print(
+        f"📈 [bold green]30-Day Impact Audit Complete:[/bold green] "
+        f"{summary['audited_count']} expanded posts audited, {summary['needs_refresh_count']} flagged for refresh."
+    )
+
+
 @cli.command("pipeline-dispatch")
 @click.option("--stdin", "use_stdin", is_flag=True, help="Read JSON event payload from standard input")
 @click.option("-f", "--file", "payload_file", type=click.Path(exists=True), help="Path to JSON event payload file")
